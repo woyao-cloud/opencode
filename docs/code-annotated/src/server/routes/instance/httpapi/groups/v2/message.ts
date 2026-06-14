@@ -1,0 +1,66 @@
+/**
+ * groups/v2/message - V2 消息 API 路由组
+ *
+ * 功能概述：
+ * - 定义 V2 版本的消息相关 HTTP API 端点
+ *
+ * 核心导出：
+ * - MessageGroup：消息 API 路由组
+ *
+ * 架构位置：HTTP API V2 路由组，依赖 SessionID 和 SessionMessage
+ */
+
+import { SessionID } from "@/session/schema"
+import { SessionMessage } from "@opencode-ai/core/session-message"
+import { Schema } from "effect"
+import { HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { Authorization } from "../../middleware/authorization"
+import { WorkspaceRoutingQueryFields } from "../../middleware/workspace-routing"
+
+export const MessagesQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
+  limit: Schema.optional(
+    Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200)),
+  ).annotate({
+    description: "Maximum number of messages to return. When omitted, the endpoint returns its default page size.",
+  }),
+  order: Schema.optional(Schema.Union([Schema.Literal("asc"), Schema.Literal("desc")])).annotate({
+    description: "Message order for the first page. Use desc for newest first or asc for oldest first.",
+  }),
+  cursor: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "Opaque pagination cursor returned as cursor.previous or cursor.next in the previous response. Do not combine with order.",
+    }),
+  ),
+}).annotate({ identifier: "V2SessionMessagesQuery" })
+
+export const MessageGroup = HttpApiGroup.make("v2.message")
+  .add(
+    HttpApiEndpoint.get("messages", "/api/session/:sessionID/message", {
+      params: { sessionID: SessionID },
+      query: MessagesQuery,
+      success: Schema.Struct({
+        items: Schema.Array(SessionMessage.Message),
+        cursor: Schema.Struct({
+          previous: Schema.String.pipe(Schema.optional),
+          next: Schema.String.pipe(Schema.optional),
+        }),
+      }).annotate({ identifier: "V2SessionMessagesResponse" }),
+      error: HttpApiError.BadRequest,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "v2.session.messages",
+        summary: "Get v2 session messages",
+        description:
+          "Retrieve projected v2 messages for a session. Items keep the requested order across pages; use cursor.next or cursor.previous to move through the ordered timeline.",
+      }),
+    ),
+  )
+  .annotateMerge(
+    OpenApi.annotations({
+      title: "v2 messages",
+      description: "Experimental v2 message routes.",
+    }),
+  )
+  .middleware(Authorization)

@@ -1,0 +1,106 @@
+/**
+ * [account/schema] - Account 类型定义与校验
+ * 功能概述：定义 AccountID、OrgID、AccessToken、RefreshToken 等 branded 类型，以及 Info、Org、AccountError 等结构化类型
+ * 核心导出：AccountID, OrgID, AccessToken, RefreshToken, Info, Org, AccountError, AccountServiceError, AccountTransportError
+ * 架构位置：domain types layer，被 account、repo 依赖
+ */
+
+import { Schema } from "effect"
+import type * as HttpClientError from "effect/unstable/http/HttpClientError"
+
+export const AccountID = Schema.String.pipe(Schema.brand("AccountID"))
+export type AccountID = Schema.Schema.Type<typeof AccountID>
+
+export const OrgID = Schema.String.pipe(Schema.brand("OrgID"))
+export type OrgID = Schema.Schema.Type<typeof OrgID>
+
+export const AccessToken = Schema.String.pipe(Schema.brand("AccessToken"))
+export type AccessToken = Schema.Schema.Type<typeof AccessToken>
+
+export const RefreshToken = Schema.String.pipe(Schema.brand("RefreshToken"))
+export type RefreshToken = Schema.Schema.Type<typeof RefreshToken>
+
+export const DeviceCode = Schema.String.pipe(Schema.brand("DeviceCode"))
+export type DeviceCode = Schema.Schema.Type<typeof DeviceCode>
+
+export const UserCode = Schema.String.pipe(Schema.brand("UserCode"))
+export type UserCode = Schema.Schema.Type<typeof UserCode>
+
+export class Info extends Schema.Class<Info>("Account")({
+  id: AccountID,
+  email: Schema.String,
+  url: Schema.String,
+  active_org_id: Schema.NullOr(OrgID),
+}) {}
+
+export class Org extends Schema.Class<Org>("Org")({
+  id: OrgID,
+  name: Schema.String,
+}) {}
+
+export class AccountRepoError extends Schema.TaggedErrorClass<AccountRepoError>()("AccountRepoError", {
+  message: Schema.String,
+  cause: Schema.optional(Schema.Defect),
+}) {}
+
+export class AccountServiceError extends Schema.TaggedErrorClass<AccountServiceError>()("AccountServiceError", {
+  message: Schema.String,
+  cause: Schema.optional(Schema.Defect),
+}) {}
+
+export class AccountTransportError extends Schema.TaggedErrorClass<AccountTransportError>()("AccountTransportError", {
+  method: Schema.String,
+  url: Schema.String,
+  description: Schema.optional(Schema.String),
+  cause: Schema.optional(Schema.Defect),
+}) {
+  static fromHttpClientError(error: HttpClientError.TransportError): AccountTransportError {
+    return new AccountTransportError({
+      method: error.request.method,
+      url: error.request.url,
+      description: error.description,
+      cause: error.cause,
+    })
+  }
+
+  override get message(): string {
+    return [
+      `Could not reach ${this.method} ${this.url}.`,
+      `This failed before the server returned an HTTP response.`,
+      this.description,
+      `Check your network, proxy, or VPN configuration and try again.`,
+    ]
+      .filter(Boolean)
+      .join("\n")
+  }
+}
+
+export type AccountError = AccountRepoError | AccountServiceError | AccountTransportError
+
+export class Login extends Schema.Class<Login>("Login")({
+  code: DeviceCode,
+  user: UserCode,
+  url: Schema.String,
+  server: Schema.String,
+  expiry: Schema.Duration,
+  interval: Schema.Duration,
+}) {}
+
+export class PollSuccess extends Schema.TaggedClass<PollSuccess>()("PollSuccess", {
+  email: Schema.String,
+}) {}
+
+export class PollPending extends Schema.TaggedClass<PollPending>()("PollPending", {}) {}
+
+export class PollSlow extends Schema.TaggedClass<PollSlow>()("PollSlow", {}) {}
+
+export class PollExpired extends Schema.TaggedClass<PollExpired>()("PollExpired", {}) {}
+
+export class PollDenied extends Schema.TaggedClass<PollDenied>()("PollDenied", {}) {}
+
+export class PollError extends Schema.TaggedClass<PollError>()("PollError", {
+  cause: Schema.Defect,
+}) {}
+
+export const PollResult = Schema.Union([PollSuccess, PollPending, PollSlow, PollExpired, PollDenied, PollError])
+export type PollResult = Schema.Schema.Type<typeof PollResult>

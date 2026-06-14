@@ -1,0 +1,89 @@
+/**
+ * [effect/runtime-flags] - 运行时标志模块
+ *
+ * 功能概述：
+ * - 定义和管理运行时特性标志（Feature Flag）
+ * - 通过环境变量配置各功能的启用/禁用状态
+ * - 支持实验性功能和配置覆盖
+ *
+ * 核心导出：
+ * - Service：运行时标志服务
+ * - layerWith()：创建带覆盖标志的 Layer
+ * - defaultLayer：默认运行时标志 Layer
+ *
+ * 架构位置：上游依赖 Effect Config、config-service；下游被各功能模块引用
+ */
+import { Config, ConfigProvider, Context, Effect, Layer } from "effect"
+import { ConfigService } from "@/effect/config-service"
+
+const bool = (name: string) => Config.boolean(name).pipe(Config.withDefault(false))
+const positiveInteger = (name: string) =>
+  Config.number(name).pipe(
+    Config.map((value) => (Number.isInteger(value) && value > 0 ? value : undefined)),
+    Config.orElse(() => Config.succeed(undefined)),
+  )
+const experimental = bool("OPENCODE_EXPERIMENTAL")
+const enabledByExperimental = (name: string) =>
+  Config.all({ experimental, enabled: bool(name) }).pipe(Config.map((flags) => flags.experimental || flags.enabled))
+
+export class Service extends ConfigService.Service<Service>()("@opencode/RuntimeFlags", {
+  autoShare: bool("OPENCODE_AUTO_SHARE"),
+  pure: bool("OPENCODE_PURE"),
+  disableDefaultPlugins: bool("OPENCODE_DISABLE_DEFAULT_PLUGINS"),
+  disableChannelDb: bool("OPENCODE_DISABLE_CHANNEL_DB"),
+  disableEmbeddedWebUi: bool("OPENCODE_DISABLE_EMBEDDED_WEB_UI"),
+  disableExternalSkills: bool("OPENCODE_DISABLE_EXTERNAL_SKILLS"),
+  disableLspDownload: bool("OPENCODE_DISABLE_LSP_DOWNLOAD"),
+  skipMigrations: bool("OPENCODE_SKIP_MIGRATIONS"),
+  disableClaudeCodePrompt: Config.all({
+    broad: bool("OPENCODE_DISABLE_CLAUDE_CODE"),
+    direct: bool("OPENCODE_DISABLE_CLAUDE_CODE_PROMPT"),
+  }).pipe(Config.map((flags) => flags.broad || flags.direct)),
+  disableClaudeCodeSkills: Config.all({
+    broad: bool("OPENCODE_DISABLE_CLAUDE_CODE"),
+    direct: bool("OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"),
+  }).pipe(Config.map((flags) => flags.broad || flags.direct)),
+  enableExa: Config.all({
+    experimental,
+    enabled: bool("OPENCODE_ENABLE_EXA"),
+    legacy: bool("OPENCODE_EXPERIMENTAL_EXA"),
+  }).pipe(Config.map((flags) => flags.experimental || flags.enabled || flags.legacy)),
+  enableParallel: Config.all({
+    enabled: bool("OPENCODE_ENABLE_PARALLEL"),
+    legacy: bool("OPENCODE_EXPERIMENTAL_PARALLEL"),
+  }).pipe(Config.map((flags) => flags.enabled || flags.legacy)),
+  enableExperimentalModels: bool("OPENCODE_ENABLE_EXPERIMENTAL_MODELS"),
+  enableQuestionTool: bool("OPENCODE_ENABLE_QUESTION_TOOL"),
+  experimentalScout: enabledByExperimental("OPENCODE_EXPERIMENTAL_SCOUT"),
+  experimentalBackgroundSubagents: enabledByExperimental("OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS"),
+  experimentalLspTy: bool("OPENCODE_EXPERIMENTAL_LSP_TY"),
+  experimentalLspTool: enabledByExperimental("OPENCODE_EXPERIMENTAL_LSP_TOOL"),
+  experimentalOxfmt: enabledByExperimental("OPENCODE_EXPERIMENTAL_OXFMT"),
+  experimentalPlanMode: enabledByExperimental("OPENCODE_EXPERIMENTAL_PLAN_MODE"),
+  experimentalEventSystem: enabledByExperimental("OPENCODE_EXPERIMENTAL_EVENT_SYSTEM"),
+  experimentalWorkspaces: enabledByExperimental("OPENCODE_EXPERIMENTAL_WORKSPACES"),
+  experimentalIconDiscovery: enabledByExperimental("OPENCODE_EXPERIMENTAL_ICON_DISCOVERY"),
+  outputTokenMax: positiveInteger("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"),
+  bashDefaultTimeoutMs: positiveInteger("OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS"),
+  client: Config.string("OPENCODE_CLIENT").pipe(Config.withDefault("cli")),
+}) {}
+
+export type Info = Context.Service.Shape<typeof Service>
+
+const emptyConfigLayer = Service.defaultLayer.pipe(
+  Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
+  Layer.orDie,
+)
+
+export const layer = (overrides: Partial<Info> = {}) =>
+  Layer.effect(
+    Service,
+    Effect.gen(function* () {
+      const flags = yield* Service
+      return Service.of({ ...flags, ...overrides })
+    }),
+  ).pipe(Layer.provide(emptyConfigLayer))
+
+export const defaultLayer = Service.defaultLayer.pipe(Layer.orDie)
+
+export * as RuntimeFlags from "./runtime-flags"

@@ -1,0 +1,66 @@
+/**
+ * cli/cmd/tui/context/exit - TUI 退出上下文
+ * 功能概述：- 管理 TUI 退出流程，包含退出消息、清理和终端状态恢复
+ * 核心导出：- ExitProvider / useExit: 退出上下文提供者与 Hook
+ * 架构位置：TUI 上下文层
+ */
+import { useRenderer } from "@opentui/solid"
+import { createSimpleContext } from "./helper"
+import { FormatError, FormatUnknownError } from "@/cli/error"
+import { win32FlushInputBuffer } from "../win32"
+type Exit = ((reason?: unknown) => Promise<void>) & {
+  message: {
+    set: (value?: string) => () => void
+    clear: () => void
+    get: () => string | undefined
+  }
+}
+
+export const { use: useExit, provider: ExitProvider } = createSimpleContext({
+  name: "Exit",
+  init: (input: { onBeforeExit?: () => Promise<void>; onExit?: () => Promise<void> }) => {
+    const renderer = useRenderer()
+    let message: string | undefined
+    let task: Promise<void> | undefined
+    const store = {
+      set: (value?: string) => {
+        const prev = message
+        message = value
+        return () => {
+          message = prev
+        }
+      },
+      clear: () => {
+        message = undefined
+      },
+      get: () => message,
+    }
+    const exit: Exit = Object.assign(
+      (reason?: unknown) => {
+        if (task) return task
+        task = (async () => {
+          await input.onBeforeExit?.()
+          // Reset window title before destroying renderer
+          renderer.setTerminalTitle("")
+          renderer.destroy()
+          win32FlushInputBuffer()
+          if (reason) {
+            const formatted = FormatError(reason) ?? FormatUnknownError(reason)
+            if (formatted) {
+              process.stderr.write(formatted + "\n")
+            }
+          }
+          const text = store.get()
+          if (text) process.stdout.write(text + "\n")
+          await input.onExit?.()
+        })()
+        return task
+      },
+      {
+        message: store,
+      },
+    )
+    process.on("SIGHUP", () => exit())
+    return exit
+  },
+})
