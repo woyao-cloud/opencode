@@ -5,196 +5,323 @@
 
 ---
 
-## 2.1 从一个真实的场景开始
+## 2.1 从一个真实的故事开始
 
-假设我们要实现一个"用户发送消息 → AI 生成回复 → 保存到数据库"的功能。
+想象一下，你是一个有五年经验的 Java 后端工程师，习惯了 Spring Boot 那一套——
 
-### 2.1.1 Java 的 Promise 写法
+你写 Controller，用 `@Autowired` 注入 Service，Service 里用 `@Transactional` 管理事务，异步操作交给 `CompletableFuture`，错误处理用 `try/catch`。一切都很熟悉。
+
+然后你接到了一个任务：维护一个 TypeScript + Effect-ts 的项目。
+
+你打开代码，看到了这样的写法：
+
+```typescript
+const result = yield* someService.doStuff(input).pipe(
+  Effect.retry(Schedule.exponential("1 seconds")),
+  Effect.timeout("30 seconds"),
+)
+```
+
+你愣住了。`yield*` 是什么？不是 `await`，不是 `return`，是一个带着星号的 yield。`.pipe()` 又是什么——Java 8 的 Stream API 混进来了？
+
+更让你困惑的是，`someService` 这个变量——它没有构造函数，没有 setter，没有 `@Autowired` 注解——它是从哪里来的？
+
+本章的目的就是解开这些谜。你会发现，Effect 不是在"发明新概念"，而是在用函数式的方式重新解决 Java 开发者已经熟悉的那些问题：异步编程怎么做、错误怎么处理、依赖怎么注入。
+
+我们从一个你绝对熟悉的场景开始。
+
+### 2.1.1 一个简单的业务场景
+
+假设我们要实现一个"用户发送消息 → AI 生成回复 → 保存到数据库"的功能。在 Spring Boot 里，你可能会这样写：
 
 ```java
 // Java
-public CompletableFuture<Message> processMessage(String content) {
-    return CompletableFuture.supplyAsync(() -> {
-        // 1. 调用 AI API
-        return aiClient.generate(content);
-    }).thenCompose(reply -> {
-        // 2. 保存到数据库
-        return messageRepository.save(reply);
-    }).exceptionally(error -> {
-        // 3. 错误处理
-        log.error("Failed to process message", error);
-        throw new RuntimeException(error);
-    });
+@Service
+public class MessageService {
+    @Autowired
+    private AIClient aiClient;           // 依赖 1：AI 客户端
+
+    @Autowired
+    private MessageRepository repository; // 依赖 2：数据库
+
+    public CompletableFuture<Message> processMessage(String content) {
+        return CompletableFuture.supplyAsync(() -> {
+            return aiClient.generate(content);  // 调用 AI
+        }).thenCompose(reply -> {
+            return repository.save(reply);      // 存到数据库
+        }).exceptionally(error -> {
+            log.error("Failed to process message", error);
+            throw new RuntimeException(error);
+        });
+    }
 }
 ```
 
-这段代码有什么问题？
+这段代码看起来很直观，对吧？但你大概率曾经被它坑过。
 
-1. **错误类型丢失**：`.exceptionally()` 捕获所有异常，无法区分"AI 服务不可用"和"数据库连接失败"
-2. **依赖不明确**：`aiClient` 和 `messageRepository` 从哪来的？全局变量？Spring 注入？
-3. **无法组合重试**：如果 AI 调用超时了想重试，需要自己写循环
+### 2.1.2 这段代码的三个隐患
 
-### 2.1.2 Effect 的写法
+**隐患 1：错误类型丢失**
+
+`.exceptionally()` 捕获了所有异常。不管是 `AIClient` 抛出的"API Key 过期"还是 `repository` 抛出的"数据库连接失败"，都被吞进了同一个 `Throwable`。如果你想区分处理——比如 API Key 过期需要提示用户重新登录，数据库失败需要自动重试——你会发现根本做不到，因为类型信息已经丢了。
+
+**隐患 2：依赖来源不明**
+
+`aiClient` 和 `repository` 是字段注入的。你在 IDE 里点 "Find Usages" 可以看到它们在哪里被使用，但你看不到**谁提供了它们**。如果一个 Bean 没定义，错误不是在编译时出现，而是在运行时报 `NullPointerException`——可能是在生产环境上线的第一分钟。
+
+**隐患 3：重试逻辑需要手写**
+
+`CompletableFuture` 本身没有重试机制。如果 AI 调用超时了，你需要自己写一个循环：
+
+```java
+// Java 手写重试——这段代码你很熟悉吧？
+int maxRetries = 3;
+for (int i = 0; i < maxRetries; i++) {
+    try {
+        return aiClient.generate(content);
+    } catch (Exception e) {
+        if (i == maxRetries - 1) throw e;
+        Thread.sleep(1000 * (long) Math.pow(2, i)); // 指数退避，手动实现
+    }
+}
+```
+
+这段重试代码的问题不在于它长，而在于**每一个可能超时的地方都要写一遍**——AI 调用要写、数据库连接要写、HTTP 请求要写。你很快就会发现自己陷入了 copy-paste 的泥潭。
+
+### 2.1.3 Effect 是如何解决这些问题的
+
+现在来看 Effect 的版本。我不要求你立刻理解每一行代码，先感受一下对比：
 
 ```typescript
 // TypeScript + Effect
 function processMessage(content: string) {
   return Effect.gen(function* () {
-    // 1. 依赖在哪里？通过 Effect 上下文获取
+    // 依赖从上下文获取——不是字段注入，不是全局变量
     const ai = yield* AIService
     const db = yield* DatabaseService
 
-    // 2. 调用 AI API（错误是类型安全的）
+    // 调用 AI（声明式重试——不需要手写循环）
     const reply = yield* ai.generate(content).pipe(
-      Effect.retry(Schedule.exponential("1 seconds"))  // 声明式重试
+      Effect.retry(Schedule.exponential("1 seconds"))
     )
 
-    // 3. 保存到数据库
+    // 保存到数据库
     const saved = yield* db.save(reply)
-
     return saved
   })
 }
-
-// 错误类型在编译期就知道
-type ProcessError = AIServiceError | DatabaseError
 ```
 
-**关键差异**：
-- 依赖**不是全局的**，通过 Effect 上下文（`yield* AIService`）获取
-- 重试**不是手写的**，通过 `Effect.retry()` 声明式组合
-- 错误**不是丢失的**，错误类型在编译期就确定了
+三个问题对应三个解决方案：
+
+1. **错误类型不丢失**——`Effect<A, E, R>` 中的 `E` 就是错误类型。你能在编译期就知道这个 Effect 可能抛出什么错误。在 Java 中你要靠文档或者 luck 才知道一个 `CompletableFuture` 可能以哪些异常结束；在 Effect 中，编译器知道一切。
+
+2. **依赖来源明确**——`yield* AIService` 不是从魔法中获取实例的。`AIService` 是一个 `Tag`（标签），Effect Runtime 在运行时会从已注册的 `Layer` 中找到对应的实现。在 Java 中这被称为"控制反转"——Spring 用注解实现，Effect 用类型实现。
+
+3. **重试是声明式的**——`.pipe(Effect.retry(...))` 是一个**声明**，不是**实现**。你说"我要重试，指数退避，从 1 秒开始"，Effect Runtime 负责执行。你不需要写循环，不需要处理线程 sleep 的中断异常，不需要记住每次重试的间隔。
 
 ---
 
 ## 2.2 Effect 三部曲：理解 `<A, E, R>`
 
-### 2.2.1 三个类型参数
+### 2.2.1 三个类型参数到底在说什么
+
+Effect 的核心是一个泛型类型，三个参数：
 
 ```typescript
-// Effect<A, E, R> 的三个类型参数：
-//   A = Success Type  (成功时返回值的类型)
-//   E = Error Type    (失败时错误的类型)
-//   R = Requirements  (执行这个 Effect 需要的依赖)
-
-// 示例
+// Effect<成功类型, 错误类型, 依赖类型>
 type MyEffect = Effect<string, HttpError, AIService | DatabaseService>
-//                ↑           ↑            ↑
-//              成功返回 string │           需要 AIService 和 DatabaseService
-//                           错误是 HttpError
 ```
 
-### 2.2.2 类比 Java
+你可以把这三个参数理解为三个问题的答案：
+
+- **A（Success）**：这个操作成功时返回什么？——`string`
+- **E（Error）**：这个操作失败时以什么方式失败？——`HttpError`
+- **R（Requirements）**：这个操作需要谁才能执行？——`AIService 或 DatabaseService`
+
+在 Java 中，这三个问题的答案是分散的：
 
 ```java
-// Java 中，类似的效果需要用多个机制组合：
-//   A  = 方法的返回值类型
-//   E  = checked exception (但 Java 不一定抛出)
-//   R  = 方法的参数 + @Autowired 依赖
-
-// Java
-public CompletableFuture<String> process() throws HttpError {
-    AIService ai = SpringContext.getBean(AIService.class);  // 依赖从外部获取
-    DatabaseService db = SpringContext.getBean(DatabaseService.class);
+// Java 中，这三个信息是分散的
+public CompletableFuture<String> process()
+    throws HttpError {                  // E 在 throws 子句中
+                                        // A 在泛型参数中
+    AIService ai = getAIService();      // R 在方法体内部
+    DatabaseService db = getDatabase();
     // ...
 }
 ```
 
-**Effect 的优雅之处**：A、E、R 三个维度都在**类型系统**中体现，编译器会检查你是否处理了所有错误、是否提供了所有依赖。
+`CompletableFuture<String>` 只回答了 A（返回 String）。E 隐藏在 `throws` 子句中（而且经常是 `throws Exception`——等于什么都没说）。R 最惨——你根本看不出来，除非你读了全部的方法体。
 
-### 2.2.3 在 OpenCode 中的实际使用
+Effect 把这三个问题统一到一个类型中。这意味着：
+
+- 如果你忘了处理某种错误，编译器会告诉你
+- 如果你忘了提供某个依赖，编译器会告诉你
+- 如果你把两个不同类型的 Effect 组合在一起，编译器会算出它们的并集
+
+### 2.2.2 一个帮助你记忆的类比
+
+```
+Effect<A, E, R>
+       │  │  │
+       │  │  └─ 像 Spring 的 @Autowired：你需要什么才能执行？
+       │  │
+       │  └──── 像 Java 的 throws：可能出什么问题？
+       │
+       └─────── 像 Java 的泛型返回值：成功了返回什么？
+```
+
+### 2.2.3 一个更具体的例子
+
+假设你在写一个"获取用户信息"的功能：
 
 ```typescript
-// packages/core/src/event.ts:84
-export class Service extends Context.Service<Service, Interface>()("@opencode/Event") {}
-
-// packages/core/src/event.ts:86-153
-export const layer = Layer.effect(
-  Service,                     // 要提供的服务
-  Effect.gen(function* () {    // 服务的初始化逻辑
-    const all = yield* PubSub.unbounded<Payload>()
-    return Service.of({ publish, subscribe, all: streamAll, sync })
-  }),
-)
-// 这里的 Effect 是 Effect<Service, never, never>
-// A = Service（成功时返回 Service 实例）
-// E = never（不可能失败）
-// R = never（不需要额外依赖）
+// 获取用户信息 Effect
+type GetUser = Effect<
+  User,               // A: 成功 → 返回 User 对象
+  NotFoundError,      // E: 失败 → 可能用户不存在
+  DatabaseService     // R: 需要数据库才能执行
+>
 ```
+
+现在你想增加缓存功能：
+
+```typescript
+type GetUserWithCache = Effect<
+  User,
+  NotFoundError | CacheError,  // E 自动扩展了——多了缓存可能出错
+  DatabaseService | CacheService  // R 也扩展了——多了缓存依赖
+>
+```
+
+注意看——Effect 类型**自动组合**了。你加了一个缓存逻辑，编译器要求你同时处理 `CacheError` 并提供 `CacheService`。在 Java 中，这种"组合式变更"需要你手动跟踪所有调用链——很容易漏掉某个 catch 块或某个注入点。
 
 ---
 
-## 2.3 Effect.gen：命令式风格的异步编程
+## 2.3 Effect.gen：一条一条执行的"脚本"
 
-### 2.3.1 对比 Java 和 TypeScript
+### 2.3.1 对比三种异步风格的写法
 
-```javascript
-// Java: 命令式风格
-// 你写的是"怎么做"
-public String process(String input) {
-    String result = step1(input);       // 同步
-    String enhanced = step2(result);    // 同步
-    return enhanced;
+假设有三个步骤：A → B → C，每个步骤都可能失败。
+
+**Java 同步风格（最简单，最直观）**：
+
+```java
+// Java
+public Result process() {
+    A a = step1();
+    B b = step2(a);
+    C c = step3(b);
+    return c;
 }
+```
 
-// TypeScript Promise: 链式风格
-// 你写的是"回调怎么组织"
-async function process(input: string): Promise<string> {
-    const result = await step1(input)
-    const enhanced = await step2(result)
-    return enhanced
+**TypeScript Promise 风格（大部分时候也还好）**：
+
+```typescript
+// Promise
+async function process(): Promise<Result> {
+    const a = await step1()
+    const b = await step2(a)
+    const c = await step3(b)
+    return c
 }
+```
 
-// TypeScript Effect: 命令式风格 + 可组合
-// 你写的是"怎么做"，和 Java 一样直观
-function process(input: string): Effect<string, Error, never> {
+**Java CompletableFuture 链式风格（一个链式调用的噩梦）**：
+
+```java
+// Java CompletableFuture 链式
+public CompletableFuture<Result> process() {
+    return step1().thenCompose(a ->
+        step2(a).thenCompose(b ->
+            step3(b).thenApply(c -> c)
+        )
+    );
+}
+```
+
+如果你写过这种代码，你一定经历过那种"加一个步骤就要重新缩进一整段"的痛苦。三步还好，十步的话——你的代码会变成一个向右倾斜的三角形。
+
+**Effect.gen 风格（保留了 Java 同步风格的直观）**：
+
+```typescript
+// Effect
+function process(): Effect<Result, Error, never> {
     return Effect.gen(function* () {
-        const result = yield* step1(input)    // yield* 类似 await
-        const enhanced = yield* step2(result) // 但比 await 更强大
-        return enhanced
+        const a = yield* step1()
+        const b = yield* step2(a)
+        const c = yield* step3(b)
+        return c
     })
 }
 ```
 
-### 2.3.2 yield* 和 await 的区别
+这就是 Effect.gen 的魅力：**它让你用写同步代码的方式写异步逻辑**。`yield*` 关键字在这里的作用类似于 `await`，但它等待的不只是 Promise——它可以等待任何 Effect，包括那些带着重试策略、超时控制、资源管理的复杂 Effect。
+
+### 2.3.2 深入理解 yield*：它和 await 到底有什么区别
+
+很多第一次接触 Effect 的 Java 开发者会问："`yield*` 不就是 `await` 吗？"
+
+答案是：功能上确实相似——两者都"暂停当前执行，等待异步操作完成"。但区别在于：
+
+`await` 只能等 `Promise`。你写 `await fetch(url)`，它等你一个 HTTP 请求。完事。你不能在 `await` 后面附加"如果超时了怎么办"、"如果失败了重试几次"——这些逻辑要在 `await` 外面包裹。
+
+`yield*` 可以等**任何 Effect**——而 Effect 本身已经包含了错误处理、重试策略、超时控制等信息。所以你可以写：
 
 ```typescript
-// await 只能等 Promise
-const result = await fetch(url)
-
-// yield* 可以等任何"可组合"的对象
-const user = yield* findUser(id)                    // Effect
-const count = yield* countUsers.pipe(               // Effect + pipe
-  Effect.timeout("5 seconds")
-)
-const stream = yield* EventV2.Service.subscribe(    // Stream
-  SessionCreated
+const data = yield* fetchData(url).pipe(
+  Effect.retry(Schedule.exponential("1 seconds")),
+  Effect.timeout("30 seconds"),
+  Effect.catchTag("TimeoutError", () => fallbackData),
 )
 ```
 
-**对 Java 开发者来说**：`yield*` 可以理解为"智能版的 `await`"——它不仅能等待异步操作，还能附加超时、重试、资源管理等行为。
+这一行代码等于 Java 中的：
 
-### 2.3.3 Effect.fn：命名你的 Effect
+```java
+// Java 需要这么多代码才能实现同样的效果
+for (int i = 0; i < 3; i++) {
+    try {
+        return CompletableFuture.supplyAsync(() -> fetchData(url))
+            .get(30, TimeUnit.SECONDS);
+    } catch (TimeoutException e) {
+        // 超时，重试
+    } catch (Exception e) {
+        if (i == 2) return fallbackData;
+    }
+}
+```
+
+所以结论是：**`yield*` 不是 `await` 的替代品，而是 `await` + `try/catch` + `for(retry)` 的合体**。
+
+### 2.3.3 一个小练习
+
+读下面这段代码，猜猜它的执行顺序：
 
 ```typescript
-// packages/core/src/auth.ts:156-158
-get: Effect.fn("AuthV2.get")(function* (accountID) {
-  return (yield* SynchronizedRef.get(state)).accounts[accountID]
-}),
-
-// 为什么命名？
-// 1. 堆栈跟踪能显示 "AuthV2.get" 而不是 "anonymous"
-// 2. OpenTelemetry 能追踪这个特定的 Effect
-// 3. 调试时能知道当前执行到哪里
+function demo() {
+  return Effect.gen(function* () {
+    console.log("1")
+    const a = yield* Effect.succeed("2")
+    console.log(a)
+    const b = yield* Effect.sleep("1 seconds").pipe(
+      Effect.map(() => "3")
+    )
+    console.log(b)
+    console.log("4")
+  })
+}
 ```
+
+**答案**：`1 → 2 → (等待 1 秒) → 3 → 4`。和同步代码的执行顺序完全一致——这就是 Effect.gen 的设计目标：让异步代码看起来像同步代码。
 
 ---
 
-## 2.4 错误处理：Effect 的 try/catch
+## 2.4 错误处理：Effect 的异常体系
 
-### 2.4.1 Effect 的条件错误
-
-Java 中用 `try/catch` 处理错误，Effect 中用 `Effect.catchTags` / `Effect.catchAll`：
+### 2.4.1 Java 开发者最熟悉的场景
 
 ```java
 // Java
@@ -203,209 +330,335 @@ try {
 } catch (FileNotFoundException e) {
     return fallback();
 } catch (IOException e) {
-    throw new RuntimeException(e);
+    log.error("IO error", e);
+    throw e;
 }
 ```
 
+这段代码的问题是：`try` 块里的 `process()` 可能抛出什么异常？你是看了文档才知道的，还是靠运气？
+
+Java 的 checked exception 试图解决这个问题——但大多数项目最终都选择了 `throws Exception` 或者用 RuntimeException 绕过它。
+
+### 2.4.2 Effect 的错误处理
+
 ```typescript
-// TypeScript Effect
 yield* process().pipe(
   Effect.catchTags({
-    FileNotFound: () => fallback(),   // 只捕获 FileNotFound 错误
-    // IOException: 没处理 → 编译错误！
-  })
+    FileNotFound: () => fallback(),       // 精确捕获 FileNotFound
+    // 如果还有其他错误类型没处理——编译错误！
+  }),
 )
-// 更安全的版本：所有错误分支都要覆盖
-// 或者用 catchAll 兜底
 ```
 
-### 2.4.2 TaggedError：类型安全的错误层次
+关键区别：**`catchTags` 要求你处理所有标记过的错误类型**。如果你忘了处理某个错误，编译器会告诉你。不会出现"上线了才发现某个异常没被捕获"的情况。
+
+### 2.4.3 TaggedError 深入
+
+在 Effect 中，错误不是用类继承体系组织的，而是用**标签**区分的。每个错误带一个字符串标签，可以精确匹配：
 
 ```typescript
-// packages/core/src/catalog.ts:16-26
-// 定义类型安全的错误
-export class ProviderNotFoundError extends Schema.TaggedErrorClass<ProviderNotFoundError>()(
-  "CatalogV2.ProviderNotFound",
-  { providerID: ProviderV2.ID },  // 错误携带的数据
+// 定义两个错误
+export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()(
+  "NotFoundError",           // ← 标签名
+  { resourceId: Schema.String }
 ) {}
 
-export class ModelNotFoundError extends Schema.TaggedErrorClass<ModelNotFoundError>()(
-  "CatalogV2.ModelNotFound",
-  { providerID: ProviderV2.ID, modelID: ModelV2.ID },
+export class UnauthorizedError extends Schema.TaggedErrorClass<UnauthorizedError>()(
+  "UnauthorizedError",       // ← 标签名
+  { userId: Schema.String }
 ) {}
 
-// 使用
-yield* Catalog.Service.model.get(providerID, modelID).pipe(
-  // 使用 catchTags 捕获特定的标签错误
+// 精确捕获
+yield* findResource(id).pipe(
   Effect.catchTags({
-    CatalogV2ProviderNotFound: (err) =>
-      Effect.succeed(defaultModel),
-    CatalogV2ModelNotFound: (err) =>
-      Effect.fail(new UserVisibleError(`Model ${err.modelID} not found`)),
-  })
+    NotFoundError: (err) =>
+      Effect.succeed(null),              // 没找到 → 返回 null
+    // UnauthorizedError 没处理 → 继续向上传播
+  }),
 )
 ```
 
-**对 Java 开发者来说**：`Schema.TaggedErrorClass` 类似于创建 checked exception，但区别在于：
-1. 错误类型是**名义上唯一**的（通过字符串标签 `"CatalogV2.ProviderNotFound"`）
-2. 用 `catchTags` 可以精确捕获，不会意外吞错
-3. 忘记处理某个错误类型会触发**编译错误**
+**对比 Java 的异常层次**：
 
-### 2.4.3 对比：Java 异常体系 vs Effect 错误体系
+```
+Java:
+  Exception
+    ├── IOException
+    │     ├── FileNotFoundException
+    │     └── SocketException
+    └── RuntimeException
+          ├── NullPointerException
+          └── IllegalArgumentException
 
-| Java | Effect |
-|------|--------|
-| `class MyException extends Exception` | `class MyError extends Schema.TaggedErrorClass` |
-| `try { ... } catch (MyException e) { ... }` | `Effect.catchTag("MyError", handler)` |
-| `throw new MyException(msg)` | `yield* Effect.fail(new MyError({...}))` |
-| `throws` 声明（可选） | `E` 类型参数（强制） |
-| `finally { cleanup() }` | `Effect.ensuring(cleanup())` |
-| 运行期才知道抛什么异常 | 编译期就知道所有错误类型 |
+Effect:
+  TaggedError("NotFoundError")
+  TaggedError("UnauthorizedError")
+  TaggedError("ValidationError")
+  // 没有继承树——只有标签
+```
+
+Java 用继承树组织错误——`FileNotFoundException extends IOException extends Exception`。Effect 用标签组织错误——每个错误是独立的，有唯一的字符串标签。
+
+哪种更好？取决于场景。继承树的优势是可以统一捕获父类（`catch (IOException e)`），缺陷是不容易精确捕获。标签的优势是精确，缺陷是你需要显式处理每个标签。
+
+### 2.4.4 常见错误：忘记处理错误
+
+一个 Java 开发者最容易犯的 Effect 错误：
+
+```typescript
+// ❌ 错误：忘了处理可能出现的错误
+const data = yield* fetchData()  // fetchData 返回 Effect<Data, HttpError, never>
+// 如果 fetchData 失败了，错误会向上传播到调用者
+// 如果你的函数签名没有包含 HttpError——编译错误
+
+// ✅ 正确：要么处理，要么在函数签名中声明
+function getData(): Effect<Data, HttpError | AppError, never> {
+  const data = yield* fetchData()
+  return data
+}
+```
+
+这个设计迫使你在"处理错误"和"传播错误"之间做显式选择——你不能"忘记"。
 
 ---
 
-## 2.5 依赖注入：Layer vs Spring @Autowired
+## 2.5 依赖注入：从 @Autowired 到 yield* Tag
 
-### 2.5.1 Spring 的依赖注入
+### 2.5.1 Spring 的依赖注入有什么问题
 
 ```java
 // Java Spring
 @Service
-public class UserService {
+public class OrderService {
     @Autowired
-    private UserRepository repository;  // 字段注入
+    private PaymentService paymentService;
 
     @Autowired
-    private AIClient aiClient;         // 字段注入
+    private InventoryService inventoryService;
 
-    public User process(String input) {
-        // 直接用，不知道它们从哪来
+    public void placeOrder(Order order) {
+        // 这里用 paymentService 和 inventoryService
     }
 }
 ```
 
-Spring 的问题：依赖是**隐式**的——看 `@Service` 注解不知道它需要什么，运行期才会报 `NoSuchBeanDefinitionException`。
+这段代码有什么问题？从编译器的角度看——没有任何问题。但如果你在生产环境启动时发现 `PaymentService` 的 Bean 没有定义，你得到的是一个运行期异常：
+
+```
+Caused by: org.springframework.beans.factory.NoSuchBeanDefinitionException:
+  No qualifying bean of type 'com.example.PaymentService' available
+```
+
+这个错误可能在开发环境不会出现（因为开发环境加载了不同的配置），但在生产环境"突然"出现了。这就是隐式依赖的代价——编译器不检查。
 
 ### 2.5.2 Effect 的依赖注入
 
 ```typescript
-// TypeScript Effect
-
-// 1. 定义服务（类似 Spring 的接口）
+// 1. 定义服务的 Tag（类似 Spring 的接口定义）
 export class Service extends Context.Service<Service, Interface>()("@opencode/LLM") {}
 
-// 2. 创建 Layer（类似 Spring 的 @Bean 方法）
+// 2. 创建服务的 Layer（类似 @Bean 方法）
 const live: Layer.Layer<
-  Service,                              // 这个 Layer 提供什么服务
-  never,                                // 创建时可能出错吗
-  Auth.Service | Config.Service | ...   // 需要什么依赖（R 参数）
+  Service,                          // 这个 Layer 提供什么
+  never,                            // 创建不会出错
+  Auth.Service | Config.Service     // 需要 Auth 和 Config 才能创建
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const auth = yield* Auth.Service     // 从上下文中获取依赖
+    // 显式声明需要什么
+    const auth = yield* Auth.Service
     const config = yield* Config.Service
     // ...
     return Service.of({ stream })
   }),
 )
+```
 
-// 3. 组装（类似 Spring 的 @Configuration）
-export const defaultLayer = Layer.suspend(() =>
-  layer.pipe(
-    Layer.provide(Auth.defaultLayer),      // 提供 Auth 依赖
-    Layer.provide(Config.defaultLayer),    // 提供 Config 依赖
-  )
+注意 `Layer.Layer<Service, never, Auth.Service | Config.Service>` 这个签名——它明确告诉编译器：要创建 `LLM.Service`，你需要先提供 `Auth.Service` 和 `Config.Service`。
+
+如果你忘记提供 `Auth.Service`：
+
+```typescript
+// ❌ 编译错误！缺少 Auth.Service
+const app = LLM.Service.layer.pipe(
+  Layer.provide(Config.defaultLayer)  // 只提供了 Config
+  // 忘了提供 Auth.defaultLayer
+)
+
+// ✅ 正确
+const app = LLM.Service.layer.pipe(
+  Layer.provide(Config.defaultLayer),
+  Layer.provide(Auth.defaultLayer),
 )
 ```
 
-### 2.5.3 关键区别
+这就是 Effect 的"编译期依赖检查"——和 Spring 的最大区别。
 
-| 特性 | Spring | Effect |
-|------|--------|--------|
-| 依赖定义 | `@Autowired` 字段 | `yield* Service` 表达式 |
-| 依赖可见性 | 运行时（可能找不到 Bean） | 编译时（R 参数） |
-| Bean 范围 | 单例/原型/请求 | Layer（可组合、可清理） |
-| 循环依赖 | Spring 能处理（三级缓存） | Effect 编译时就会拒绝 |
-| 测试替换 | `@MockBean` | `Layer.provide(mockLayer)` |
+### 2.5.3 Layer 的"拼图"类比
 
-### 2.5.4 测试时替换依赖
+你可以把 Layer 想象成拼图：
+
+- 每个 Layer 是一块拼图
+- Block 上的"凸起"是它的**需求**（R 参数）
+- Block 上的"凹陷"是它的**供给**（输出的 Service）
+- `Layer.provide(A).pipe(Layer.provide(B))` 就是把 A 和 B 拼在一起
+
+如果你缺了一块，拼图装不上——编译器会告诉你。
+
+---
+
+## 2.6 Fiber：轻量级的"线程"
+
+### 2.6.1 Java 线程和 Effect Fiber 的对比
+
+Java 线程是操作系统线程的包装——每个线程大约占用 1MB 栈内存，上下文切换需要操作系统内核参与。一万个线程在你的笔记本上跑？你的风扇会尖叫。
+
+Effect Fiber 是用户空间调度的"轻量级线程"——每个 Fiber 只占用几个对象的内存，上下文切换是纯用户态操作。一万个 Fiber？在 Effect 中这是日常操作。
+
+```java
+// Java：启动 10,000 个线程做并发
+ExecutorService executor = Executors.newFixedThreadPool(100);
+for (int i = 0; i < 10000; i++) {
+    executor.submit(() -> {
+        // 每个线程 ~1MB 栈 → 10,000 个线程需要 ~10GB 内存
+    });
+}
+```
 
 ```typescript
-// 测试：替换真实 Auth 为 mock
-const testAuthLayer = Layer.effect(
-  Auth.Service,
-  Effect.sync(() => Auth.Service.of({
-    get: () => Effect.succeed(mockAccount),
-    // ...
+// TypeScript：启动 10,000 个 Fiber
+yield* Effect.forEach(
+  items,
+  (item) => processItem(item),
+  { concurrency: "unbounded" }  // 无限并发，Fiber 几乎没有内存开销
+)
+```
+
+### 2.6.2 Fiber 在实际项目中的用途
+
+在 OpenCode 中，用 Fiber 处理后台任务非常普遍：
+
+```typescript
+// 创建一个"后台事件监听器"，和主流程同时运行
+yield* Effect.forkIn(scope)(
+  EventV2.Service.subscribe(SessionCreated).pipe(
+    Stream.tap((event) => websocket.push(event.data)),
+    Stream.runDrain,  // 这个 Stream 会一直运行——直到 scope 关闭
+  )
+)
+// 主流程继续执行，不会被上面的监听器阻塞
+```
+
+在 Java 中实现同样的效果，你需要：
+1. 创建一个 `ExecutorService`
+2. 创建一个监听器线程
+3. 确保应用关闭时线程能正确停止
+
+在 Effect 中，Fiber 的生命周期由 `Scope` 管理——scope 关闭时，所有 fiber 自动终止。
+
+### 2.6.3 ⚠️ 容易踩的坑：忘记 fork
+
+```typescript
+// ❌ 错误：下面的 subscribe 会阻塞主流程
+yield* EventV2.Service.subscribe(MyEvent).pipe(
+  Stream.runDrain  // runDrain 会等待 Stream 结束——但 Stream 永远不会结束！
+)
+// ← 永远不会执行到这里
+
+// ✅ 正确：用 forkIn 放到后台
+yield* Effect.forkIn(scope)(
+  EventV2.Service.subscribe(MyEvent).pipe(
+    Stream.runDrain
+  )
+)
+// ← 立即执行到这里
+```
+
+这个错误几乎每个新手都会犯一次——`Stream.runDrain` 会等待流结束，而无限流永远不会结束。结果就是程序"卡住"了。记住：**长期运行的监听器一定要 fork**。
+
+---
+
+## 2.7 本章完整示例
+
+让我们把本章学到的所有概念组合起来，写一个完整的"AI 聊天服务"：
+
+```typescript
+import { Effect, Layer, Context, Schedule } from "effect"
+
+// 1. 定义服务 Tag（类似接口）
+class AIService extends Context.Tag("@app/AIService")<
+  AIService,
+  { readonly chat: (input: string) => Effect<string, Error, never> }
+>() {}
+
+class Database extends Context.Tag("@app/Database")<
+  Database,
+  { readonly save: (msg: string) => Effect<void, Error, never> }
+>() {}
+
+// 2. 实现 Layer（类似 @Bean）
+const AILayer = Layer.effect(
+  AIService,
+  Effect.sync(() => AIService.of({
+    chat: (input) =>
+      Effect.gen(function* () {
+        // AI 调用 + 重试
+        const reply = yield* callAIAPI(input).pipe(
+          Effect.retry(Schedule.exponential("500 millis")),
+          Effect.timeout("10 seconds"),
+        )
+        return reply
+      }),
   })),
 )
 
-// 在其他环境使用不同依赖
-const testLayer = realLayer.pipe(
-  Layer.provide(testAuthLayer),  // 覆盖 Auth 依赖
+const DatabaseLayer = Layer.effect(
+  Database,
+  Effect.sync(() => Database.of({
+    save: (msg) => Effect.sync(() => console.log(`Saved: ${msg}`)),
+  })),
 )
+
+// 3. 业务逻辑（用了 DI + 错误处理 + 组合）
+const processMessage = Effect.gen(function* () {
+  const ai = yield* AIService
+  const db = yield* Database
+
+  const reply = yield* ai.chat("Hello!").pipe(
+    Effect.catchTags({
+      // 错误精确处理
+      TimeoutException: () => Effect.succeed("I'm sorry, I timed out."),
+    }),
+  )
+
+  yield* db.save(reply)
+  return reply
+})
+
+// 4. 组装依赖图
+const AppLayer = Layer.mergeAll(AILayer, DatabaseLayer)
+const runnable = processMessage.pipe(Layer.provide(AppLayer))
 ```
 
 ---
 
-## 2.6 Fiber：轻量级并发 vs Java Thread
+## 2.8 本章小结
 
-### 2.6.1 线程 vs 纤程
-
-```java
-// Java 线程（重量级）
-Thread thread = new Thread(() -> {
-    // 每个线程 1MB+ 栈内存
-    // 上下文切换成本高
-});
-thread.start();
-```
-
-```typescript
-// TypeScript Effect 纤程（轻量级）
-const fiber = yield* Effect.forkIn(scope)(
-  backgroundTask  // 纤程只占几个对象的内存
-)
-// 纤程的上下文切换几乎是零成本的
-```
-
-### 2.6.2 在 OpenCode 中的实际使用
-
-```typescript
-// packages/core/src/event.ts:102-107
-// 服务关闭时清理所有 PubSub
-yield* Effect.addFinalizer(() =>
-  Effect.gen(function* () {
-    yield* PubSub.shutdown(all)                    // 关闭主 PubSub
-    yield* Effect.forEach(                         // 并行关闭所有类型 PubSub
-      typed.values(),
-      PubSub.shutdown,
-      { discard: true, concurrency: "unbounded" },  // 无限并发
-    )
-  }),
-)
-```
-
-`{ concurrency: "unbounded" }` 就是 Effect 的并发控制——同时关闭所有 PubSub，相当于 Java 的 `ExecutorService.invokeAll()`，但不用手动管理线程池。
-
----
-
-## 2.7 本章小结
-
-| Java 概念 | Effect 对应 | 为什么要换 |
-|-----------|------------|-----------|
+| Java 概念 | Effect 对应 | 核心区别 |
+|-----------|------------|----------|
 | `CompletableFuture<T>` | `Effect<A, E, R>` | 多了错误类型 E 和依赖 R |
-| `async/await` | `Effect.gen` + `yield*` | 更强大的组合能力 |
-| `try/catch/finally` | `catchTags` / `ensuring` | 编译期安全检查 |
-| `@Autowired` | `yield* Service` | 依赖显式、可测试 |
-| `ThreadPoolExecutor` | `Effect.forkIn` + `concurrency` | 零成本抽象 |
-| `@Service + @Bean` | `Context.Service + Layer` | 类型安全的 DI |
-| `throws Exception` | `E` 类型参数 | 强制处理 |
-| `CompletableFuture.allOf` | `Effect.all({concurrency})` | 更简洁的并发控制 |
+| `async/await` | `Effect.gen` + `yield*` | `yield*` 可以组合更多行为 |
+| `try/catch` | `catchTags` | 编译期检查错误是否处理完 |
+| `@Autowired` | `yield* Service` | 依赖在编译期可见 |
+| `Thread` | `Fiber` | 轻量级，百万级并发 |
+| `@Service + @Bean` | `Context.Tag + Layer` | 类型安全的 DI |
+| `ExecutorService` | `Effect.forkIn` | Scope 自动管理生命周期 |
 
-**关键领悟**：
-- Effect = Promise + try/catch + DI + Retry + Timeout 的统一抽象
-- 所有"副作用"都在 Effect 中显式表达
-- 编译器是你最好的朋友——它知道哪里可能出错
+**核心领悟**：Effect 不是"又一个新的异步框架"——它把错误处理、依赖注入、并发控制统一到了一套类型系统中。在 Java 中这些是分散在不同机制中的（异常层次、Spring DI、线程池）；在 Effect 中它们是一个整体，编译器能帮你检查你是否有遗漏。
 
-**下一章预告**：有了 TypeScript 和 Effect 的基础，我们将深入 OpenCode 的第一个核心模块——Schema 系统，看看它如何用类型安全的方式处理 JSON 序列化。
+**试试看**：打开你的 IDE，创建一个新的 Effect，尝试：
+1. 定义一个会返回 `Effect<string, NotFoundError, DatabaseService>` 的函数
+2. 在 `Effect.gen` 中调用它——但不处理 `NotFoundError`
+3. 观察编译器的反应
+
+你会发现——编译器直接告诉你要么处理错误，要么在函数签名中声明它。这个"要么处理要么声明"的约束，就是 Effect 的核心设计哲学。它把很多在 Java 中需要靠经验、规范、Code Review 才能保证的事，变成了编译器强制执行的事。

@@ -1,370 +1,554 @@
 # EventV2：解耦的事件总线
 
 > **目标读者**：熟悉 Spring `ApplicationEvent` / `@EventListener` 或消息队列（RabbitMQ/Kafka）的开发者。
-> **本章目标**：理解 EventV2 如何通过 PubSub 实现解耦，以及三种订阅模式各自的使用场景。
+> **本章目标**：理解 EventV2 如何通过 PubSub 实现解耦，以及三种订阅模式各自的使用场景和取舍。
 
 ---
 
 ## 4.1 从一个真实的问题开始
 
-假设用户创建了一个新会话。系统需要：
+想象一下你正在维护一个电商后端。每次用户下单后，系统需要做这些事情：
 
-1. **保存到数据库**
-2. **推送到 WebSocket**（前端实时更新）
-3. **写入审计日志**（合规要求）
-4. **同步到企业版后端**
+1. **扣减库存**——必须在响应返回前完成，否则可能超卖
+2. **发送通知邮件**——可以异步，晚几秒没关系
+3. **写入审计日志**——法规要求，必须在响应返回前写入
+4. **更新推荐系统缓存**——可以异步，最终一致即可
 
-### 4.1.1 Spring 的做法
+在传统的 Spring 架构中，你可能把所有这些逻辑都写在 `OrderService.createOrder()` 方法里：
 
 ```java
-// Java Spring: 用 ApplicationEventPublisher
+// Java：所有逻辑揉在一个方法里
 @Service
-public class SessionService {
-    @Autowired
-    private ApplicationEventPublisher publisher;
+public class OrderService {
+    public Order createOrder(OrderRequest request) {
+        // 1. 保存订单到数据库
+        Order order = orderRepository.save(request);
 
-    public Session createSession(String title) {
-        Session session = saveToDb(title);
+        // 2. 扣减库存
+        inventoryService.deduct(order.getItems());
 
-        // 发布事件
-        publisher.publishEvent(new SessionCreatedEvent(session));
+        // 3. 发送通知邮件
+        emailService.sendOrderConfirmation(order);
 
-        return session;
-    }
-}
+        // 4. 写入审计日志
+        auditService.log("order.created", order);
 
-// 消费者 1: 保存到数据库（其实发布者已经做了）
-@Component
-public class SessionDatabaseListener {
-    @EventListener
-    public void onSessionCreated(SessionCreatedEvent event) {
-        // 难道再保存一次？不对，这里应该做其他事
-    }
-}
+        // 5. 更新推荐缓存
+        recommendationService.updateCache(order.getUserId());
 
-// 消费者 2: WebSocket 推送
-@Component
-public class SessionWebSocketListener {
-    @EventListener
-    public void onSessionCreated(SessionCreatedEvent event) {
-        websocket.push(event.getSession());
+        return order;
     }
 }
 ```
 
-Spring 的问题：
-- **事件定义繁琐**：需要新建一个 Event 类
-- **同步执行**：默认情况下 `publishEvent` 是同步的，所有监听器执行完才返回
-- **没有流式订阅**：不能做 `filter`、`map` 等操作
-- **错误处理隐式**：监听器抛异常会影响发布者
+这个写法有什么问题？
 
-### 4.1.2 EventV2 的做法
+**问题 1：`createOrder` 方法干了太多事**——它不是一个"创建订单"方法，它是一个"创建订单 + 扣库存 + 发邮件 + 写日志 + 更新缓存"方法。方法名和实际行为不匹配。
+
+**问题 2：新增需求要改已有代码**——如果下下周产品经理说"下单后还要同步到 ERP 系统"，你需要修改 `createOrder` 方法。这是一个已经上线运行的方法——每次修改都有风险。
+
+**问题 3：错误处理复杂**——如果发邮件失败了，订单要不要回滚？如果缓存更新失败了，订单要不要取消？每个附加操作的失败策略都不同——有些是"必须成功"，有些是"失败了也无所谓"。混在一起很难区分。
+
+### 事件驱动能解决这个问题
+
+事件驱动的思路是：
+
+> `createOrder` 只做一件事：创建订单。创建成功后，发布一个"订单已创建"事件。其他所有操作——扣库存、发邮件、写日志——都是这个事件的消费者。没有顺序依赖，每个消费者独立处理。
+
+这就是 EventV2 的核心思想。
+
+---
+
+## 4.2 Spring 的事件机制有什么不足
+
+Spring 也提供了事件机制：
+
+```java
+// Java Spring 事件
+@Service
+public class OrderService {
+    @Autowired
+    private ApplicationEventPublisher publisher;
+
+    public Order createOrder(OrderRequest request) {
+        Order order = saveToDb(request);
+
+        // 发布事件
+        publisher.publishEvent(new OrderCreatedEvent(order));
+
+        return order;
+    }
+}
+
+@Component
+public class InventoryListener {
+    @EventListener
+    public void onOrderCreated(OrderCreatedEvent event) {
+        inventoryService.deduct(event.getOrder().getItems());
+    }
+}
+
+@Component
+public class EmailListener {
+    @EventListener
+    public void onOrderCreated(OrderCreatedEvent event) {
+        emailService.sendOrderConfirmation(event.getOrder());
+    }
+}
+```
+
+Spring 事件机制有几个限制：
+
+1. **事件定义需要新建一个类**——`OrderCreatedEvent` 是一个空壳类，除了携带数据什么都不做。如果你有 20 种事件，就要建 20 个类。
+
+2. **默认同步执行**——`publishEvent` 默认是同步的，所有 `@EventListener` 执行完才返回。如果想异步，需要加 `@Async`——但 `@Async` 有自己的一套坑（线程池配置、事务传播、异常处理）。
+
+3. **无法组合**——你不能对事件流做 `filter`、`map`、`merge` 等操作。如果你想"只处理今天创建的订单"或者"把所有订单事件汇总"，你需要自己写代码遍历。
+
+4. **错误传播隐式**——如果某个 `@EventListener` 抛出异常，默认情况下发布者也会收到异常。
+
+EventV2 针对这些问题给出了不同的方案。
+
+---
+
+## 4.3 EventV2 的核心设计
+
+### 4.3.1 一行定义事件
+
+在 EventV2 中，定义一个事件不需要新建类——调用 `define()` 即可：
 
 ```typescript
-// TypeScript EventV2
+// 定义事件——一行代码，既是类型又是 Schema
+const OrderCreated = EventV2.define({
+  type: "order.created",
+  version: 1,
+  aggregate: "order",
+  schema: {
+    orderId: Schema.String,
+    userId: Schema.String,
+    total: Schema.Number,
+    items: Schema.Array(Schema.String),
+  },
+})
+```
 
-// 1. 定义事件（一行）
-const SessionCreated = EventV2.define({
-  type: "session.created",
-  schema: { sessionID: Schema.String, title: Schema.String },
+`define()` 返回的对象**既是 Schema（可以编解码）又是 Definition（可以发布和订阅）**。
+
+### 4.3.2 类型安全贯穿始终
+
+```typescript
+// 发布——类型安全，数据必须匹配 schema
+yield* EventV2.Service.publish(OrderCreated, {
+  orderId: "ord_001",
+  userId: "user_042",
+  total: 299.00,
+  items: ["item_001", "item_002"],
 })
 
-// 2. 发布（发布者只关心发布，不关心谁在听）
-yield* EventV2.Service.publish(SessionCreated, {
-  sessionID: "ses_001",
-  title: "Fix login bug",
+// 如果少传了一个字段：
+yield* EventV2.Service.publish(OrderCreated, {
+  orderId: "ord_001",
+  // 忘了传 userId → 编译错误
 })
+```
 
-// 3. 消费者各自注册（互不干扰，可以 fork 到独立纤程）
-// 消费者 A: WebSocket 推送（异步）
-yield* Effect.forkIn(scope)(
-  EventV2.Service.subscribe(SessionCreated).pipe(
-    Stream.tap((event) => websocket.push(event.data)),
-    Stream.runDrain,
-  )
+### 4.3.3 三种消费方式
+
+```typescript
+// 方式 A：按类型订阅（90% 的场景）
+EventV2.Service.subscribe(OrderCreated).pipe(
+  Stream.tap((event) => inventoryService.deduct(event.data.items)),
+  Stream.runDrain,
 )
 
-// 消费者 B: 审计日志（必须在响应返回前完成）
-yield* EventV2.Service.sync((event) =>
+// 方式 B：全量流（审计、调试）
+EventV2.Service.all().pipe(
+  Stream.filter((event) => event.type.startsWith("order.")),
+  Stream.tap((event) => auditLog.write(event)),
+  Stream.runDrain,
+)
+
+// 方式 C：同步钩子（必须在发布完成前执行）
+EventV2.Service.sync((event) =>
   auditLog.write(event)
 )
 ```
 
----
-
-## 4.2 EventV2 的核心概念
-
-### 4.2.1 事件定义
-
-```typescript
-// EventV2.define() 返回一个 "既是 Schema 又是 Definition" 的对象
-const MyEvent = EventV2.define({
-  type: "my.event.type",            // 唯一事件类型标识
-  version: 1,                        // 可选：事件版本
-  aggregate: "my-aggregate",         // 可选：聚合标识
-  schema: {                          // 事件数据的 Schema
-    key: Schema.String,
-    value: Schema.Number,
-  },
-})
-```
-
-### 4.2.2 事件发布流程
+**三种方式的本质区别**：
 
 ```
-发布者                          EventV2.Service
-  │                                  │
-  │  publish(MyEvent, data)          │
-  │─────────────────────────────────▶│
-  │                                  │
-  │                                  │── 1. 遍历 sync handlers (同步) ──▶ 同步消费者
-  │                                  │
-  │                                  │── 2. 发布到 typed PubSub ───────▶ 异步消费者
-  │                                  │
-  │                                  │── 3. 发布到 all PubSub ─────────▶ 全量流消费者
-  │                                  │
-  │◀────────── Payload ◀────────────│
-```
-
-### 4.2.3 三种订阅模式
-
-```typescript
-// 模式 A: 按类型订阅（99% 的场景用这个）
-const stream = EventV2.Service.subscribe(MyEvent)
-// 返回 Stream<Payload<MyEvent>>，只包含 MyEvent 类型的事件
-// 可以链式调用 .pipe(Stream.filter(...), Stream.map(...))
-
-// 模式 B: 全量流（审计、调试用）
-const allStream = EventV2.Service.all()
-// 返回 Stream<Payload>，包含所有事件类型
-// 适合: 审计日志、全局监控、调试观察
-
-// 模式 C: 同步钩子（需要在响应返回前完成的操作）
-EventV2.Service.sync((event) => auditLog.write(event))
-// 发布者会等待 sync handler 执行完成
-// 适合: 写审计日志、更新关键状态
-```
-
----
-
-## 4.3 何时使用同步 vs 异步
-
-```
-事件发布
+publish(event)
     │
-    ├── sync —— 发布者等待完成
-    │   场景: "在响应返回前必须完成"
-    │   示例: 写审计日志、扣减库存
-    │   代价: 阻塞发布者
+    ├── sync handlers → 同步执行 → 发布者等待
+    │    场景: "必须在响应返回前确保完成"
+    │    示例: 扣减库存（否则可能超卖）
+    │          写入审计日志（法规要求）
+    │    代价: 阻塞发布者
     │
-    └── typed subscribe —— 发布者不等待
-        场景: "后续处理即可"
-        示例: 发邮件通知、推送 UI 更新
-        优点: 不阻塞主流程
-```
-
-| 场景 | 应该用 | 原因 |
-|------|--------|------|
-| 审计日志 | `sync()` | 法规要求操作必须有记录，响应返回前必须写入 |
-| WebSocket 推送 | `subscribe()` | 晚 100ms 推送没问题，不应阻塞用户操作 |
-| 发送通知邮件 | `subscribe()` | 邮件可能耗时几秒，不应阻塞 API 响应 |
-| 更新缓存 | `subscribe()` | 缓存最终一致即可 |
-| 扣减库存 | `sync()` | 必须在确认库存后才能返回"下单成功" |
-
----
-
-## 4.4 完整示例：会话创建事件
-
-### 4.4.1 定义事件
-
-```typescript
-// event-definitions.ts
-import { EventV2 } from "@opencode-ai/core/event"
-
-export const SessionCreated = EventV2.define({
-  type: "session.created",
-  version: 1,
-  aggregate: "session",
-  schema: {
-    sessionID: Schema.String,
-    title: Schema.String,
-    createdBy: Schema.String,
-  },
-})
-```
-
-### 4.4.2 发布事件
-
-```typescript
-// session-service.ts
-function createSession(title: string, user: string) {
-  return Effect.gen(function* () {
-    const session = yield* saveToDb(title, user)
-
-    // 发布事件（不关心谁订阅了）
-    yield* EventV2.Service.publish(SessionCreated, {
-      sessionID: session.id,
-      title: session.title,
-      createdBy: user,
-    })
-
-    return session
-  })
-}
-```
-
-### 4.4.3 订阅事件
-
-```typescript
-// webhook-push.ts — 异步推送，不阻塞
-function startWebhookPush(scope: Scope.Scope) {
-  return Effect.gen(function* () {
-    yield* Effect.forkIn(scope)(
-      EventV2.Service.subscribe(SessionCreated).pipe(
-        Stream.map((event) => ({
-          type: "session.created",
-          data: event.data,
-        })),
-        Stream.tap((message) => websocket.broadcast(message)),
-        Stream.runDrain,
-      )
-    )
-  })
-}
-
-// audit-log.ts — 必须在响应前写入
-function initAuditLog() {
-  return Effect.gen(function* () {
-    yield* EventV2.Service.sync((event) =>
-      auditLog.write({
-        timestamp: Date.now(),
-        type: event.type,
-        data: event.data,
-      })
-    )
-  })
-}
-```
-
-### 4.4.4 时序图
-
-```
-SessionService          EventV2.Service           sync handlers          typed subscribers
-     │                        │                        │                       │
-     │  publish(Session       │                        │                       │
-     │   Created, data)       │                        │                       │
-     │───────────────────────▶│                        │                       │
-     │                        │                        │                       │
-     │                        │  for handler of        │                       │
-     │                        │   syncHandlers:        │                       │
-     │                        │    yield* handler(evt) │                       │
-     │                        │───────────────────────▶│                       │
-     │                        │                        │  auditLog.write()     │
-     │                        │◀──────── ok ──────────│                       │
-     │                        │                        │                       │
-     │                        │  PubSub.publish(typed) │                       │
-     │                        │──────────────────────────────────────────────▶│
-     │                        │                        │                       │
-     │                        │  PubSub.publish(all)   │                       │
-     │                        │───────────────────────▶│──────────────────────▶│
-     │                        │                        │                       │
-     │◀────── Payload ───────│                        │                       │
-     │  (发布完成, 包含       │                        │                       │
-     │   同步 handler 结果)   │                        │                       │
+    └── typed subscribe → 异步 Stream → 发布者不等待
+         场景: "可以稍后处理"
+         示例: 发送通知邮件（晚几秒没关系）
+               更新缓存（最终一致即可）
+         优点: 不阻塞主流程
 ```
 
 ---
 
-## 4.5 EventV2 源码走读
+## 4.4 深入理解三种订阅模式
+
+### 4.4.1 sync——"同步钩子"到底是做什么的
+
+sync 是 EventV2 最独特的设计。它在发布者的**同一个 Effect 上下文**中执行：
 
 ```typescript
-// packages/core/src/event.ts — 核心实现（标注行号）
+// sync handler 在 publish 内部被调用
+function publish(definition, data, options?) {
+  return Effect.gen(function* () {
+    const event = buildEvent(definition, data)
 
-// 事件类型注册表（全局）
-export const registry = new Map<string, Definition>()   // line 32
-
-// 定义事件类型
-export function define(input) {                          // line 34
-  const Data = Schema.Struct(input.schema)               // 从 schema 创建数据 Schema
-  const Payload = Schema.Struct({                        // 完整的 Payload Schema
-    id: ID,
-    type: Schema.Literal(input.type),
-    data: Data,
-    // ... version, location, metadata
-  })
-  registry.set(input.type, definition)                   // 注册到全局表
-  return definition
-}
-
-// 服务层实现（line 86-153）
-export const layer = Layer.effect(
-  Service,
-  Effect.gen(function* () {
-    // 主 PubSub（接收所有事件）
-    const all = yield* PubSub.unbounded<Payload>()
-    // 类型级 PubSub 缓存
-    const typed = new Map<string, PubSub.PubSub<Payload>>()
-    // 同步 handler 列表
-    const syncHandlers = new Array<Sync>()
-
-    // 发布事件
-    function publish(definition, data, options?) {
-      return Effect.gen(function* () {
-        // 1. 构建事件对象
-        const event = { id: ID.create(), type: definition.type, data }
-        // 2. 执行同步 handler
-        for (const sync of syncHandlers) yield* sync(event)
-        // 3. 推送到类型 PubSub
-        const pubsub = typed.get(event.type)
-        if (pubsub) yield* PubSub.publish(pubsub, event)
-        // 4. 推送到全量 PubSub
-        yield* PubSub.publish(all, event)
-        return event
-      })
+    // 同步执行所有 sync handler
+    for (const handler of syncHandlers) {
+      yield* handler(event)  // 注意：和发布者在同一个 Effect 中
     }
+    // 只有当所有 sync handler 都成功完成，
+    // publish 才会继续往下走
 
-    // 按类型订阅（按需创建 PubSub）
-    const subscribe = (definition) =>
-      Stream.unwrap(
-        getOrCreate(definition).pipe(
-          Effect.map((pubsub) => Stream.fromPubSub(pubsub))
-        )
-      )
+    // 然后发布到异步 subscriber
+    yield* PubSub.publish(typedPubsub, event)
+    yield* PubSub.publish(allPubsub, event)
+
+    return event
+  })
+}
+```
+
+**这种设计解决了什么问题？**
+
+假设你的业务需求是："用户下单后，必须先扣减库存，然后才能告诉用户'下单成功'。"如果用异步 subscribe，在你通知用户"下单成功"时，库存可能还没扣完——在并发高的时候会超卖。
+
+sync handler 保证：**在所有 sync handler 完成之前，publish 不会返回**。而 publish 返回后，上层代码才会通知用户。所以 sync handler 天然适合"必须在响应前完成"的操作。
+
+**但如果某个 sync handler 失败了？**
+
+```typescript
+// sync handler 失败 → publish 返回这个失败
+yield* EventV2.Service.publish(OrderCreated, data).pipe(
+  Effect.catchTags({
+    InventoryShortage: () => Effect.succeed(partialSuccess),
   })
 )
 ```
 
+因为 sync handler 和 publish 在同一个 Effect 中，失败会传播到 publish 的调用者。这让发布者有机会处理失败——比如回滚订单。
+
+### 4.4.2 subscribe——"异步 Stream"要怎么用
+
+subscribe 返回的是一个 `Stream`——Effect 版的"可组合事件流"。你可以对它做各种操作：
+
+```typescript
+// 基础用法：监听并处理
+EventV2.Service.subscribe(OrderCreated).pipe(
+  Stream.tap((event) => emailService.send(event.data)),
+  Stream.runDrain,
+)
+
+// 组合用法：过滤 + 转换 + 聚合
+EventV2.Service.subscribe(OrderCreated).pipe(
+  Stream.filter((event) => event.data.total > 100),  // 只处理大额订单
+  Stream.map((event) => ({ ...event.data, priority: "high" })),
+  Stream.tap((event) => specialHandling(event)),
+  Stream.runDrain,
+)
+
+// 多个事件类型合并
+Stream.merge(
+  EventV2.Service.subscribe(OrderCreated),
+  EventV2.Service.subscribe(OrderCancelled),
+).pipe(
+  Stream.tap((event) => auditLog.write(event)),
+  Stream.runDrain,
+)
+```
+
+**重要的是**：subscribe 返回的 Stream 是**异步**的——它和发布者在不同的 Fiber 中运行。发布者不会等订阅者处理完成再返回。
+
+### 4.4.3 什么时候用 sync，什么时候用 subscribe
+
+| 场景 | 应该用 | 为什么 |
+|------|--------|--------|
+| 扣减库存 | `sync` | 必须在"下单成功"响应返回前确认库存扣减，否则并发下单会超卖 |
+| 写入审计日志 | `sync` | 法规要求在响应返回前必须写入日志，不能"稍后再说" |
+| 发送通知邮件 | `subscribe` | 邮件延迟几秒钟完全不影响用户体验 |
+| 更新推荐缓存 | `subscribe` | 缓存最终一致即可——几秒钟的延迟用户感知不到 |
+| 扣减用户余额 | `sync` | 和扣库存一样，必须在确认余额后才能说"支付成功" |
+| 推送 WebSocket | `subscribe` | WebSocket 连接可能中断——不能因为推送失败就回滚订单 |
+
+**一个简单的判断规则**：
+
+> 问自己：如果这个操作失败了，应该回滚主操作吗？
+> - 应该回滚 → sync（因为失败会传播到发布者）
+> - 不应该回滚 → subscribe（失败不会影响发布者）
+
 ---
 
-## 4.6 Java vs Effect 事件体系对照
+## 4.5 完整示例：订单事件处理
 
-| Java (Spring) | EventV2 | 优势 |
-|--------------|---------|------|
-| `ApplicationEventPublisher` | `EventV2.Service.publish()` | 类型安全的事件定义 |
-| `@EventListener` | `subscribe()` | 返回 Stream，可组合 |
-| 同步执行（默认） | 支持 sync / subscribe 两种模式 | 按需选择同步或异步 |
-| 事件需要新建类 | `define()` 一行定义 | 减少样板代码 |
-| 错误传播到发布者 | sync 错误被 Effect 捕获 | 可精确处理 |
-| 单个监听器 | `Stream.tap()` + `Stream.map()` | 可链式处理 |
-| 无内置过滤 | `Stream.filter()` | 事件流就是 Stream |
+```typescript
+// 1. 定义事件（放在一个单独的文件里）
+const OrderCreated = EventV2.define({
+  type: "order.created",
+  version: 1,
+  aggregate: "order",
+  schema: {
+    orderId: Schema.String,
+    userId: Schema.String,
+    total: Schema.Number,
+    items: Schema.Array(Schema.String),
+  },
+})
+
+// 2. 发布事件（在 OrderService 中）
+function createOrder(items: string[], userId: string) {
+  return Effect.gen(function* () {
+    // 只有核心业务逻辑
+    const order = yield* saveOrder(items, userId)
+
+    // 发布事件——所有附加逻辑通过事件驱动
+    yield* EventV2.Service.publish(OrderCreated, {
+      orderId: order.id,
+      userId,
+      total: order.total,
+      items,
+    })
+
+    return order
+  })
+}
+
+// 3. 注册消费者（在应用启动时）
+
+// 消费者 A：扣减库存（同步——必须在响应前完成）
+yield* EventV2.Service.sync((event) => {
+  if (event.type === "order.created") {
+    return inventoryService.deduct(event.data.items)
+  }
+  return Effect.void
+})
+
+// 消费者 B：发送邮件（异步——可以稍后）
+yield* Effect.forkIn(scope)(
+  EventV2.Service.subscribe(OrderCreated).pipe(
+    Stream.tap((event) => emailService.sendConfirmation(event.data.userId)),
+    Stream.runDrain,
+  )
+)
+
+// 消费者 C：更新推荐缓存（异步——最终一致即可）
+yield* Effect.forkIn(scope)(
+  EventV2.Service.subscribe(OrderCreated).pipe(
+    Stream.tap((event) => recommendationService.updateCache(event.data.userId)),
+    Stream.runDrain,
+  )
+)
+```
+
+现在如果产品经理说"下单后还要发短信通知"——你只需要新增一个消费者，不用改 `createOrder` 方法。
 
 ---
 
-## 4.7 本章小结
+## 4.6 EventV2 源码走读
+
+```typescript
+// packages/core/src/event.ts — 核心实现
+// 为什么这个文件只有 157 行？——因为核心概念很简单
+
+// 1. 全局事件类型注册表
+export const registry = new Map<string, Definition>()
+
+// 2. 定义事件（返回 Schema + Definition 的组合体）
+export function define(input) {
+  const Data = Schema.Struct(input.schema)
+  const PayloadSchema = Schema.Struct({
+    id: ID,
+    type: Schema.Literal(input.type),
+    data: Data,
+    // ... version, location, metadata（可选字段）
+  })
+  registry.set(input.type, definition)
+  return definition
+}
+
+// 3. 服务实现
+export const layer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    // 主 PubSub：接收所有事件
+    const all = yield* PubSub.unbounded<Payload>()
+    // 类型级 PubSub：按类型分流
+    const typed = new Map<string, PubSub.PubSub<Payload>>()
+    // 同步 handler 列表
+    const syncHandlers = new Array<Sync>()
+
+    // 发布的核心逻辑
+    function publish(definition, data, options?) {
+      return Effect.gen(function* () {
+        const event = buildEvent(definition, data)
+
+        // ① 先执行同步 hook
+        for (const sync of syncHandlers) {
+          yield* sync(event)
+        }
+
+        // ② 再推送到类型订阅者
+        const pubsub = typed.get(event.type)
+        if (pubsub) yield* PubSub.publish(pubsub, event)
+
+        // ③ 再推送到全量订阅者
+        yield* PubSub.publish(all, event)
+
+        return event
+      })
+    }
+  })
+)
+```
+
+**关键设计决策**：
+
+1. **`syncHandlers` 是数组，不是 PubSub**——意味着 sync handler 的执行是有序的（按注册顺序），且发布者能感知到 handler 的失败
+
+2. **`typed` 是按需创建的 PubSub**——如果一个事件类型从未被订阅，就不会创建对应的 PubSub，也不会浪费内存
+
+3. **`all` 始终存在**——即使没有按类型订阅，全量流也能工作
+
+---
+
+## 4.7 三种订阅模式在 EventV2 Service 中的实现
+
+```typescript
+// 按类型订阅：第一次订阅时创建 PubSub
+const subscribe = (definition) =>
+  Stream.unwrap(
+    getOrCreate(definition).pipe(
+      Effect.map((pubsub) => Stream.fromPubSub(pubsub))
+    )
+  )
+
+// 全量流：直接使用主 PubSub
+const streamAll = () => Stream.fromPubSub(all)
+
+// 同步钩子：注册到数组中
+const sync = (handler) =>
+  Effect.sync(() => {
+    syncHandlers.push(handler)
+    // 返回取消注册的函数
+    return Effect.sync(() => {
+      const index = syncHandlers.indexOf(handler)
+      if (index >= 0) syncHandlers.splice(index, 1)
+    })
+  })
+```
+
+---
+
+## 4.8 ⚠️ 常见错误
+
+**错误 1：把长时间运行的操作放在 sync handler 中**
+
+```typescript
+// ❌ 错误：sync handler 中做了耗时操作
+yield* EventV2.Service.sync((event) =>
+  emailService.sendConfirmation(event.data.userId)
+  // 发送邮件可能耗时 2-3 秒
+)
+// 发布者会被阻塞 2-3 秒——用户的"下单成功"响应也延迟 2-3 秒
+
+// ✅ 正确：耗时操作放在 subscribe 中
+yield* Effect.forkIn(scope)(
+  EventV2.Service.subscribe(OrderCreated).pipe(
+    Stream.tap((event) => emailService.sendConfirmation(event.data.userId)),
+    Stream.runDrain,
+  )
+)
+```
+
+**错误 2：忘记 fork subscribe 的 Stream**
+
+```typescript
+// ❌ 错误：Stream.runDrain 会阻塞主流程
+yield* EventV2.Service.subscribe(OrderCreated).pipe(
+  Stream.runDrain  // runDrain 会等待流结束——但流永远不会结束！
+)
+// ← 永远不会执行到这里
+
+// ✅ 正确：fork 到后台 Fiber
+yield* Effect.forkIn(scope)(
+  EventV2.Service.subscribe(OrderCreated).pipe(
+    Stream.runDrain
+  )
+)
+// ← 立即执行到这里
+```
+
+**错误 3：在 sync handler 中抛异常导致 publish 失败**
+
+```typescript
+// sync handler 的失败会传播到 publish 的调用者
+// 如果某个 sync handler 不应该影响主流程——不要用 sync
+
+// 一个真实的例子：审计日志服务挂了
+yield* EventV2.Service.sync((event) =>
+  auditService.write(event)  // 如果审计服务挂了 → publish 返回失败
+)
+// → 用户看到"下单失败"——但订单其实已经保存了
+```
+
+---
+
+## 4.9 试试看
+
+**练习**：使用 EventV2 实现一个"用户注册"的事件驱动流程。
+
+需求：
+1. 定义 `UserRegistered` 事件（包含 userId、email、注册时间）
+2. 注册成功后发布事件
+3. 注册以下消费者：
+   - 发送欢迎邮件（异步）
+   - 初始化用户配置（同步——必须在响应前完成）
+   - 同步到 CRM 系统（异步）
+
+**预期代码结构**：
+
+```typescript
+// 1. 定义事件
+const UserRegistered = EventV2.define({
+  type: "user.registered",
+  schema: { userId: Schema.String, email: Schema.String, registeredAt: Schema.Number },
+})
+
+// 2. 注册服务
+function registerUser(email: string) { ... }
+
+// 3. 消费者
+// 提示：哪个用 sync？哪个用 subscribe + forkIn？
+```
+
+---
+
+## 4.10 本章小结
+
+| Java Spring | EventV2 | 核心区别 |
+|-----------|---------|----------|
+| `ApplicationEventPublisher` | `EventV2.Service.publish()` | 类型安全的事件 Schema |
+| `@EventListener` | `subscribe()` | 返回 Stream 可组合 |
+| `@Async` + `@EventListener` | `subscribe()` + `forkIn` | Fiber 不需要线程池 |
+| 默认同步 | 可选 sync / subscribe | 按需选择同步或异步 |
+| 错误传播到发布者 | sync 会传播，subscribe 不会 | 更精细的错误隔离 |
+| 事件类 `extends ApplicationEvent` | `define()` 一行 | 无需新建类 |
 
 **核心要点**：
-1. 发布者只负责 `publish()`，不关心谁订阅了
-2. 三种订阅模式：`subscribe`（按类型）、`all`（全量）、`sync`（同步）
-3. sync 用于"必须在响应前完成"的操作
-4. subscribe 用于"后续处理即可"的操作
-5. 事件定义、发布、订阅都是类型安全的
-
-**最佳实践**：
-```
-定义事件 → 在模块顶层用 define()
-发布事件 → 在业务代码中用 publish()
-订阅事件 → 在应用初始化时注册，用 forkIn 启动独立 Fiber
-同步钩子 → 仅在必要时使用（审计、关键状态更新）
-```
+- sync handler：**"必须在响应前完成"**——阻塞发布者，失败会传播
+- subscribe：**"可以稍后处理"**——不阻塞发布者，失败不影响主流程
+- 发布者只关心 `publish()`，不关心谁在听
 
 **下一章预告**：AuthV2——多账户凭证管理。我们将看到如何用品牌类型和不可变更新来管理多个 AI 提供商的 API Key 和 OAuth Token。
