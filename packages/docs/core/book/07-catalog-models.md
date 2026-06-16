@@ -235,7 +235,62 @@ function ModelSelector() {
 
 ---
 
-## 7.7 本章小结
+## 7.7 ⚠️ 常见错误
+
+**错误 1：混淆 available 和 all**
+
+```typescript
+// ❌ 错误：用 all() 做运行时模型选择
+// all() 可能包含离线的提供商
+const models = yield* Catalog.Service.model.all()
+const selected = models[0]  // 如果选到离线的——请求会失败
+
+// ✅ 正确：用 available() 做运行时选择
+const models = yield* Catalog.Service.model.available()
+const selected = models[0]  // 保证可用
+```
+
+**错误 2：在插件中注册模型时 providerID 拼写错误**
+
+```typescript
+// ❌ 错误：providerID 大小写不一致
+{
+  providerID: "GitHub-Copilot",  // 后面查的时候可能变成 "github-copilot"
+}
+
+// ✅ 正确：统一小写
+{
+  providerID: "github-copilot",
+}
+```
+
+---
+
+## 7.8 试试看
+
+**练习**：模拟一个"模型注册 + 查询"的流程。
+
+实现一个简化的 Catalog，支持：
+1. 注册两个提供商（"anthropic" 和 "openai"），每个提供商下有 2 个模型
+2. 其中一个模型标记为 `small: true`
+3. 实现 `available()` 和 `small(providerID)` 方法
+
+**期望输出**：
+
+```typescript
+const catalog = createCatalog()
+catalog.register("anthropic", "claude-sonnet-4")
+catalog.register("anthropic", "claude-haiku", { small: true })
+catalog.register("openai", "gpt-4o")
+catalog.register("openai", "gpt-4o-mini", { small: true })
+
+const smallModels = catalog.small("anthropic")
+// smallModels.id === "claude-haiku" ✅
+```
+
+---
+
+## 7.9 本章小结
 
 | Java 概念 | Catalog 对应 | 优势 |
 |-----------|-------------|------|

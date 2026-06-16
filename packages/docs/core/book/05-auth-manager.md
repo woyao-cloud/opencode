@@ -334,7 +334,61 @@ const load = Effect.fnUntraced(function* () {
 
 ---
 
-## 5.6 本章小结
+## 5.6 ⚠️ 常见错误
+
+**错误 1：创建账户后忘记持久化**
+
+AuthV2 使用 `SynchronizedRef` 管理内存中的状态，并自动持久化到 `auth-v2.json`。但如果你**直接修改**了 `state` 而不是通过 `SynchronizedRef.modifyEffect`，修改只会在内存中生效，重启后丢失。
+
+```typescript
+// ❌ 错误：直接修改内部状态
+const state = SynchronizedRef.makeUnsafe(loaded)
+state.accounts["new_acc"] = newAccount  // 只改内存，没写磁盘
+
+// ✅ 正确：通过 Service 方法修改
+yield* AuthV2.Service.create({
+  serviceID: ServiceID.make("anthropic"),
+  credential: new ApiKeyCredential({ type: "api", key: "sk-xxx" }),
+})
+// → 自动 modifyEffect → 持久化
+```
+
+**错误 2：忘记品牌类型——在函数签名中用 string 代替品牌类型**
+
+```typescript
+// ❌ 错误——品牌类型白定义了
+function getAccount(id: string) { ... }  // 用 string 代替 AccountID
+// 调用者还是可以传任何字符串
+
+// ✅ 正确——函数签名使用品牌类型
+function getAccount(id: AccountID) { ... }
+```
+
+---
+
+## 5.7 试试看
+
+**练习**：实现一个简化的凭证管理系统，支持两个提供商（anthropic 和 openai）的 API Key 管理。
+
+1. 定义 Account 和 ApiKeyCredential 的 Schema
+2. 实现 `create` 和 `active` 两个方法（用 `SynchronizedRef`）
+3. 验证：创建两个账户后，`active("anthropic")` 返回正确的账户
+4. 验证：创建账户时 `active: true` 是否正确设置了默认账户
+
+**期望输出**：
+
+```typescript
+const auth = createAuthManager()
+yield* auth.create({ serviceID: "anthropic", key: "sk-ant-xxx", active: true })
+yield* auth.create({ serviceID: "openai", key: "sk-proj-yyy", active: true })
+
+const current = yield* auth.active("anthropic")
+// current.key === "sk-ant-xxx" ✅
+```
+
+---
+
+## 5.8 本章小结
 
 | Java 概念 | AuthV2 对应 | 优势 |
 |-----------|------------|------|

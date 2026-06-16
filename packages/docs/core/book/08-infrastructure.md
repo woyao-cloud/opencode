@@ -339,7 +339,60 @@ volumes:
 
 ---
 
-## 8.7 本章小结
+## 8.7 ⚠️ 常见错误
+
+**错误 1：用 fs 直接操作路径而不是通过 AppFileSystem**
+
+```typescript
+// ❌ 错误：直接用 fs（没有错误包装、没有 JSON 自动解析）
+const content = await fs.readFile(path, "utf-8")
+const data = JSON.parse(content)
+
+// ✅ 正确：用 AppFileSystem（自动错误处理、自动 JSON 解析）
+const data = yield* AppFileSystem.Service.use(
+  (fs) => fs.readJson(path)
+).pipe(
+  Effect.catchAll(() => Effect.succeed({}))  // 不存在就用默认值
+)
+```
+
+**错误 2：在测试中忘记覆盖 Global 路径导致误删数据**
+
+```typescript
+// ❌ 错误：测试中使用了真实的 Global 路径
+const config = yield* Global.Service
+const path = path.join(config.data, "test.json")
+// → 操作真实数据目录！测试结束后文件还在
+
+// ✅ 正确：用 layerWith 覆盖测试路径
+const testLayer = Global.layerWith({
+  data: "/tmp/test-opencode/data",
+  config: "/tmp/test-opencode/config",
+})
+// → 所有操作都在 /tmp 下，测试结束自动清理
+```
+
+---
+
+## 8.8 试试看
+
+**练习**：用 AppFileSystem 实现一个"配置文件管理器"。
+
+需求：
+1. 从 `~/.config/myapp/config.json` 读取配置（不存在则用默认值）
+2. 更新配置后写回
+3. 确保写入权限为 600（仅 owner 可读）
+
+**期望代码结构**：
+
+```typescript
+// 提示：用 AppFileSystem.Service 的 readJson / writeJson 方法
+// readJson 不存在时会返回错误——用 catchAll 兜底
+```
+
+---
+
+## 8.9 本章小结
 
 | Java 概念 | OpenCode 对应 | 优势 |
 |-----------|-------------|------|

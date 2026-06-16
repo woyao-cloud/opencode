@@ -5,117 +5,136 @@
 
 ---
 
-## 6.1 问题概述
+## 6.1 从一个真实的问题开始
 
-OpenCode 支持 20+ AI 提供商：
+想象一下你负责维护一个需要对接多个 AI 提供商的系统。
 
-```
-Anthropic (Claude)    → @ai-sdk/anthropic
-OpenAI (GPT)          → @ai-sdk/openai
-Google (Gemini)       → @ai-sdk/google
-Mistral               → @ai-sdk/mistral
-Groq                  → @ai-sdk/groq
-... 以及 15+ 更多提供商
-```
+今天 Anhropic 发布了新模型，你要集成；下周 OpenAI 更新了 API，你要适配；下个月用户要求支持 Google Gemini，你又要加班。
 
-每个提供商都有自己的 SDK，初始化方式和参数都不同。直接在上层 LLM 服务中做这些适配会导致：
-
-1. **重复初始化**：每次 LLM 调用都要重新 import + 配置 SDK
-2. **缺少统一超时**：各提供商有不同的超时机制
-3. **难以扩展**：新增一个提供商要改多处代码
-
-### 6.1.1 Java 的策略模式
+每次新增一个提供商，你都要写类似的代码，但细节又不太一样：
 
 ```java
-// Java 策略模式
-interface LanguageModelProvider {
-    CompletableFuture<String> generate(String prompt);
-}
-
-class AnthropicProvider implements LanguageModelProvider {
+// Java：每新增一个提供商就要写一套类似的代码
+public class AnthropicClient {
     public CompletableFuture<String> generate(String prompt) {
-        // Anthropic 特有的 API 调用
+        // Anthropic 特有的 API 调用方式
+        // API Key 在 header 中
+        // 请求格式是 ...
     }
 }
 
-class OpenAIProvider implements LanguageModelProvider {
+public class OpenAIClient {
     public CompletableFuture<String> generate(String prompt) {
-        // OpenAI 特有的 API 调用
+        // OpenAI 特有的 API 调用方式
+        // API Key 在 header 中（格式不同）
+        // 请求格式是 ...（也不同）
     }
 }
+```
 
-// 工厂
-class ProviderFactory {
-    LanguageModelProvider create(String providerId) {
-        switch (providerId) {
-            case "anthropic": return new AnthropicProvider();
-            case "openai":    return new OpenAIProvider();
-            // 每新增一个提供商，就要修改这里
+这些客户端的外面还要包一层"工厂"，根据用户配置选择正确的客户端：
+
+```java
+// Java 工厂模式
+public class AIClientFactory {
+    public AIClient create(String provider) {
+        switch (provider) {
+            case "anthropic": return new AnthropicClient();
+            case "openai":    return new OpenAIClient();
+            case "google":    return new GoogleClient();
+            // 每新增一个提供商，就要改这里
+            // 违反"开闭原则"——对扩展开放，对修改关闭
+            default: throw new UnsupportedProviderException(provider);
         }
     }
 }
 ```
 
-问题：**新增提供商要改 Factory 代码，违反开闭原则**。
+这种架构有几个深层问题：
 
-### 6.1.2 AISDK 的插件方案
+1. **新增提供商要改核心代码**——`switch` 语句在核心包中，每加一个提供商就要改它
+2. **没有统一的超时控制**——每个客户端自己实现超时，风格不一致
+3. **初始化开销**——每次使用都要 import + 初始化 SDK，浪费性能
+4. **异常处理不一致**——Anthropic 的错误码和 OpenAI 的不同，每个客户端自己解析
 
-```typescript
-// AISDK 用插件系统实现真正的开闭原则
-const sdk = yield* plugin.trigger("aisdk.sdk", { model, options })
+### AISDK 的解决思路
 
-// 插件在外部注册：
-// plugin/anthropic.ts
-plugin.register("aisdk.sdk", ({ model, options }) => {
-  const sdk = createAnthropic(options)
-  return { sdk }
-})
+AISDK 的做法是提供一个**抽象层**，把"获取 SDK 实例"和"获取 LanguageModel"两个操作抽象成插件钩子：
 
-// 新增提供商 = 新增插件文件，不用改 AISDK 核心代码
 ```
+上层代码只调用: AISDK.Service.language(modelInfo)
+AISDK 内部:
+  1. 检查缓存 → 有就直接返回（耗时 0ms）
+  2. 通过插件获取 SDK → import("@ai-sdk/anthropic")
+  3. 通过插件获取 LanguageModel → sdk.languageModel("claude-sonnet-4")
+  4. 缓存结果 → 下次调用秒回
+  5. 返回 LanguageModelV3 实例
+```
+
+新增提供商 = 新增一个插件。**不需要改 AISDK 核心代码**。
 
 ---
 
-## 6.2 AISDK 架构
+## 6.2 AISDK 架构概览
 
 ```
-LLM.Service (session/llm.ts)
+open code/session/llm.ts (上层调用)
     │
     │  AISDK.Service.language(model)
     ▼
-┌───────────────────────────────────────────────────────────┐
-│ AISDK (core/src/aisdk.ts)                                 │
-│                                                           │
-│  ① 计算缓存 key: providerID / modelID / variant          │
-│  ② 查询缓存 → 命中直接返回                                │
-│  ③ prepareOptions: timeout + baseURL + fetch 包装         │
-│  ④ plugin.trigger("aisdk.sdk") → 获取 SDK 实例            │
-│  ⑤ plugin.trigger("aisdk.language") → 获取 LanguageModel  │
-│  ⑥ 缓存 LanguageModel → 返回                              │
-└───────────────────────────────────────────────────────────┘
+packages/core/src/aisdk.ts (抽象层)
+    │
+    ├── ① 计算缓存 key: "anthropic/claude-sonnet-4/default"
+    ├── ② 查缓存 → 命中直接返回
+    ├── ③ 准备选项 (timeout + baseURL + 自定义 fetch)
+    ├── ④ 触发插件: "aisdk.sdk" → 获取 SDK 实例
+    ├── ⑤ 触发插件: "aisdk.language" → 获取 LanguageModel
+    ├── ⑥ 缓存并返回
     │
     ▼
-@ai-sdk/anthropic / @ai-sdk/openai / @ai-sdk/google / ...
+@ai-sdk/anthropic / @ai-sdk/openai / @ai-sdk/google / ... (具体提供商 SDK)
 ```
+
+**AISDK 层的价值**：它把"获取一个可用的 AI 模型"这个操作抽象成了 6 步——上层代码只需要调用 `language(model)`，不需要知道具体是哪家提供商、不需要关心缓存、不需要设置超时。
 
 ---
 
-## 6.3 缓存策略：为什么需要缓存
+## 6.3 缓存：为什么能省下 50-200ms
+
+### 6.3.1 一个容易被忽略的性能问题
+
+每次调用 `@ai-sdk/anthropic` 获取 LanguageModel，背后发生的事情是：
 
 ```typescript
-// packages/core/src/aisdk.ts:120-167
-// 缓存的核心实现
-const languages = new Map<string, LanguageModelV3>()
-const sdks = new Map<string, SDK>()
+// 每次调用 AISDK.Service.language(model) 时（没有缓存）：
+// 1. 动态 import("@ai-sdk/anthropic")          → 30-80ms
+// 2. createAnthropic({ ... 配置 ... })         → 10-50ms
+// 3. sdk.languageModel("claude-sonnet-4")      → 1-5ms
+// 合计: 41-135ms
+```
+
+如果用户在一次对话中发送了 10 条消息，每次消息都要调用 LLM，那么没有缓存的情况下，光初始化就浪费了 0.4 到 1.3 秒。
+
+而且你可能意识到了：**同一个模型在同一个对话中反复初始化，纯属浪费**。第一次初始化之后，后面每次都是同样的参数、同样的 SDK、同样的 LanguageModel。
+
+### 6.3.2 缓存实现
+
+```typescript
+// packages/core/src/aisdk.ts
+// 两个缓存 Map：
+const languages = new Map<string, LanguageModelV3>()   // 缓存 LanguageModel
+const sdks = new Map<string, SDK>()                     // 缓存 SDK 实例
 
 language: Effect.fn("AISDK.language")(function* (model) {
+  // 计算缓存 key
   const key = `${model.providerID}/${model.id}/${model.options.variant ?? "default"}`
+  // 例如: "anthropic/claude-sonnet-4-20250514/default"
 
-  // 缓存命中 → 直接返回（耗时 0ms）
+  // 缓存命中 → 直接返回，耗时 0ms
   const existing = languages.get(key)
   if (existing) return existing
 
-  // 首次获取 → 动态 import + SDK 初始化（耗时 50-200ms）
+  // 缓存未命中 → 完整初始化流程
   const options = prepareOptions(model, model.endpoint.package)
   const sdk = yield* plugin.trigger("aisdk.sdk", { model, options })
   const result = yield* plugin.trigger("aisdk.language", { model, sdk, options })
@@ -127,76 +146,81 @@ language: Effect.fn("AISDK.language")(function* (model) {
 })
 ```
 
-**性能数据**：
+**效果**：
 
-| 操作 | 首次耗时 | 缓存命中耗时 |
-|------|---------|-------------|
-| 动态 import SDK | 30-80ms | 0ms |
-| SDK 初始化 (createAnthropic) | 10-50ms | 0ms |
-| LanguageModel 获取 | 1-5ms | 0ms |
-| **合计** | **41-135ms** | **0ms** |
+| 调用次数 | 无缓存 | 有缓存 |
+|----------|--------|--------|
+| 第 1 次 | 41-135ms | 41-135ms |
+| 第 2 次（同模型） | 41-135ms | **0ms** |
+| 第 10 次 | 410-1350ms 累计 | **41-135ms 累计** |
 
-对 Java 开发者来说，这类似于：
+对 Java 开发者来说，这就像：
 
 ```java
-// Java 的 ConcurrentHashMap 缓存
+// Java 等价实现
 private final Map<String, LanguageModel> cache = new ConcurrentHashMap<>();
 
 public LanguageModel getLanguage(Model model) {
-    return cache.computeIfAbsent(
-        model.providerId() + "/" + model.id(),
-        key -> {
-            SDK sdk = loadSDK(model);       // 只执行一次
-            return sdk.createLanguageModel(model);
-        }
-    );
+    String key = model.providerId() + "/" + model.id();
+    // ConcurrentHashMap.computeIfAbsent 是线程安全的
+    return cache.computeIfAbsent(key, k -> {
+        SDK sdk = loadSDK(model);    // 只执行一次
+        return sdk.createLanguageModel(model);
+    });
 }
 ```
 
 ---
 
-## 6.4 SSE 超时保护
+## 6.4 SSE 超时保护：一个真实的事故
 
-### 6.4.1 问题：Stream 卡死
+### 6.4.1 没有超时保护的后果
 
-AI 提供商的 API 响应是 SSE（Server-Sent Events）流。如果网络抖动或服务端异常，流可能在中间卡住——最后一个 chunk 发完了但连接没关闭。
+想象一下这个场景：你的用户在使用 OpenCode 和 AI 对话，AI 生成了大半的回复——突然，流卡住了。
 
-默认的 `fetch` 没有 chunk-level timeout，会一直等到 TCP 超时（通常 2-5 分钟）。
+最后一个 chunk 在屏幕上显示到一半，然后…… 什么都没了。没有错误提示，没有超时，就是卡住了。
+
+用户开始狂按回车、刷新页面、重启应用。5 分钟后，流"突然"恢复了——因为 TCP 连接终于超时了。
+
+这个问题的根源是：**AI 提供商的 SSE（Server-Sent Events）流可能因为网络抖动或服务端异常，在中间某个 chunk 处卡住**，而标准的 `fetch` API 没有 chunk-level 超时。
+
+`fetch` 的超时是整个请求的超时——如果连接已经建立，正在接收流，`fetch` 的超时不会触发，因为它认为"连接还在活动中"。而 SSE 流的卡死发生在 chunk 之间——上一个 chunk 收到了，下一个 chunk 迟迟不发。`fetch` 认为"还在等数据"，不会中断。
 
 ### 6.4.2 AISDK 的解决方案
 
 ```typescript
 // packages/core/src/aisdk.ts:11-57
+// 核心思路：对 SSE 流中每个 chunk 的读取设置独立超时
 function wrapSSE(res: Response, ms: number, ctl: AbortController): Response {
-  // 只对 SSE 响应生效
+  // 只对 SSE 响应生效（非 SSE 的请求不管）
   if (!res.headers.get("content-type")?.includes("text/event-stream")) {
     return res
   }
 
   const reader = res.body.getReader()
 
-  // 创建新的 Response，每个 chunk 都有超时
+  // 创建一个新的 ReadableStream，每个 chunk 都有超时
   const body = new ReadableStream({
     async pull(ctrl) {
-      // 对每个 read() 设置 ms 超时
+      // Promise.race：在"读下一个 chunk"和"超时"之间竞争
       const chunk = await Promise.race([
-        reader.read(),
+        reader.read(),                          // 读下一个 chunk
         timeout(ms).then(() => {
           const err = new Error("SSE read timed out")
-          ctl.abort(err)
-          throw err
+          ctl.abort(err)                        // 中断原始流
+          throw err                             // 抛超时异常，触发上层重试
         }),
       ])
 
       if (chunk.done) {
-        ctrl.close()
+        ctrl.close()       // 流正常结束
         return
       }
-      ctrl.enqueue(chunk.value)
+      ctrl.enqueue(chunk.value)  // 推送到下游
     },
 
     async cancel(reason) {
-      ctl.abort(reason)
+      ctl.abort(reason)          // 如果下游取消了，也中断原始流
       await reader.cancel(reason)
     },
   })
@@ -209,55 +233,72 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController): Response {
 }
 ```
 
-**工作原理**：
+**工作原理的比喻**：
+
+想象你在一家餐厅点了一份套餐（SSE 流）。服务员（fetch）每隔一会儿给你上一道菜（chunk）。
+
+没有 wrapSSE 的情况：服务员上完前菜后，主菜迟迟不来。你等啊等，不好意思催。等了 5 分钟才发现厨房根本没在做你的菜——但服务员不告诉你，因为他"还在等"。
+
+有 wrapSSE 的情况：服务员给你一个定时器。每道菜之间的等待时间不超过 `chunkTimeout` 毫秒。超时了，他就直接告诉经理（抛出异常）——"这个菜做不出来了，换一种方式处理"。
+
+### 6.4.3 效果对比
 
 ```
 正常流:
   chunk1 → (100ms) → chunk2 → (50ms) → chunk3 → done ✓
 
 卡死流（无 wrapSSE）:
-  chunk1 → (100ms) → chunk2 → (卡死 5 分钟...) → TCP 超时 ✗
+  chunk1 → (100ms) → chunk2 → (卡死 5 分钟...) → TCP 超时 → 用户放弃 ✗
 
-卡死流（有 wrapSSE）:
-  chunk1 → (100ms) → chunk2 → (超过 chunkTimeout) → 抛超时异常 → 触发重试 ✓
+卡死流（有 wrapSSE, chunkTimeout=10s）:
+  chunk1 → (100ms) → chunk2 → (超过 10s) → SSE chunk timeout → 触发重试 ✓
 ```
 
 ---
 
-## 6.5 自定义 fetch 包装
+## 6.5 自定义 fetch：不仅仅是超时
+
+AISDK 的自定义 fetch 做了不止超时一件事。它提供了**完整的 HTTP 请求控制层**：
 
 ```typescript
-// packages/core/src/aisdk.ts:59-99
 function prepareOptions(model, pkg) {
   const options = {
     name: model.providerID,
     ...model.options.aisdk.provider,
   }
 
-  // baseURL 覆盖
+  // 1. 覆盖 baseURL（自托管网关等场景）
   if (model.endpoint.type === "aisdk" && model.endpoint.url) {
     options.baseURL = model.endpoint.url
   }
 
-  // 包装 fetch
-  const customFetch = options.fetch
+  // 2. 包装 fetch
   options.fetch = async (input, init?) => {
+    // 2a. 合并多重超时信号
     const signals = [
-      init?.signal,
-      // chunk-level timeout
-      chunkTimeout ? new AbortController() : undefined,
-      // request-level timeout
-      options.timeout ? AbortSignal.timeout(options.timeout) : undefined,
+      init?.signal,                           // 原始 abort signal
+      chunkTimeout ? new AbortController() : undefined,  // chunk 级超时
+      options.timeout ? AbortSignal.timeout(options.timeout) : undefined,  // 请求级超时
     ].filter(Boolean)
 
-    // 合并多个 abort signal
     if (signals.length > 1) {
-      opts.signal = AbortSignal.any(signals)
+      opts.signal = AbortSignal.any(signals)  // 任一超时都中断
     }
 
-    const res = await (customFetch ?? fetch)(input, opts)
+    // 2b. OpenAI 特定修复：删除请求体中的 id 字段
+    // 某些版本的 OpenAI API 不接受 input 中包含 id
+    if ((pkg === "@ai-sdk/openai" || pkg === "@ai-sdk/azure") && opts.body) {
+      const body = JSON.parse(opts.body)
+      if (body.store !== true && Array.isArray(body.input)) {
+        for (const item of body.input) {
+          if ("id" in item) delete item.id
+        }
+        opts.body = JSON.stringify(body)
+      }
+    }
 
-    // SSE 超时包装
+    // 2c. 执行请求 + SSE 超时包装
+    const res = await (customFetch ?? fetch)(input, opts)
     return wrapSSE(res, chunkTimeout, chunkAbortCtl)
   }
 
@@ -265,106 +306,181 @@ function prepareOptions(model, pkg) {
 }
 ```
 
-**超时层级**：
+**超时层级**（三层防护）：
 
 ```
-请求级超时 (timeout) ─── 整个请求的最大等待时间
-    │
-chunk 级超时 (chunkTimeout) ─── SSE 流中每个 chunk 的最大等待时间
-    │
-TCP 级超时 (底层) ─── 操作系统级的连接超时
-```
-
----
-
-## 6.6 插件扩展点
-
-AISDK 通过 PluginV2 提供两个扩展点：
-
-```typescript
-// 扩展点 1: "aisdk.sdk"
-// 用于获取或创建 AI SDK 实例
-plugin.trigger("aisdk.sdk", { model, options })
-// 返回 { sdk: SDK }
-
-// 扩展点 2: "aisdk.language"
-// 用于从 SDK 获取 LanguageModel
-plugin.trigger("aisdk.language", { model, sdk, options })
-// 返回 { language: LanguageModelV3 }
-```
-
-**如果这两个钩子都没有插件处理**，AISDK 会尝试默认路径：
-
-```typescript
-// 兜底逻辑（aisdk.ts:162）
-const language = yield* Effect.sync(
-  () => result.language ?? sdk.languageModel(model.apiID)
-)
+请求级超时 (options.timeout)
+  → 整个 HTTP 请求的最大等待时间
+  → 如果 AI 提供商一直不响应，在这个时间后中断
+  ↓
+Chunk 级超时 (chunkTimeout)
+  → SSE 流中两个相邻 chunk 之间的最大等待时间
+  → 如果流在中间卡住，在这个时间后中断
+  ↓
+TCP 级超时 (操作系统默认)
+  → 最底层防线，通常 2-5 分钟
+  → AISDK 几乎不会用到这一层
 ```
 
 ---
 
-## 6.7 完整流程图
+## 6.6 插件扩展：如何做到不改核心代码就新增提供商
+
+### 6.6.1 两个扩展点
+
+AISDK 通过 PluginV2 暴露两个扩展点：
+
+```typescript
+// 扩展点 1："aisdk.sdk"
+// 作用：获取或创建 AI SDK 实例
+// 调用时机：首次获取某个模型的 LanguageModel 时
+// 期望返回：{ sdk: SDK }
+const { sdk } = yield* plugin.trigger("aisdk.sdk", { model, options })
+
+// 扩展点 2："aisdk.language"
+// 作用：从 SDK 获取 LanguageModel 实例
+// 调用时机：获取到 SDK 实例后
+// 期望返回：{ language: LanguageModelV3 }
+const { language } = yield* plugin.trigger("aisdk.language", { model, sdk, options })
+```
+
+### 6.6.2 插件如何工作
+
+以 Anthropic 插件为例（简化）：
+
+```typescript
+// 外部插件：@opencode-ai/plugin-anthropic
+const AnthropicPlugin = {
+  name: "anthropic",
+
+  hooks: {
+    "aisdk.sdk": ({ model, options }) => {
+      // 只处理本提供商的请求
+      if (model.providerID !== "anthropic") return {}
+
+      const sdk = createAnthropic(options)
+      return { sdk }
+    },
+
+    "aisdk.language": ({ model, sdk }) => {
+      if (model.providerID !== "anthropic") return {}
+
+      const language = sdk.languageModel(model.apiID)
+      return { language }
+    },
+  },
+}
+```
+
+**新增一个提供商 = 新增一个插件文件，不改 AISDK 一行代码**。这和 Java 的 SPI（Service Provider Interface）思想一致，但实现更轻量——不需要 META-INF/services。
+
+---
+
+## 6.7 完整时序图
 
 ```
 LLM.Service            AISDK.Service               Plugin                  @ai-sdk/anthropic
-(session/llm)          (core/aisdk)                (core/plugin)            (npm package)
+(session/llm)          (core/aisdk)                (core/plugin)            (npm 包)
      │                      │                          │                        │
-     │  language(model)     │                          │                        │
+     │  language({          │                          │                        │
+     │   providerID:        │                          │                        │
+     │   "anthropic",       │                          │                        │
+     │   id: "claude-       │                          │                        │
+     │   sonnet-4"          │                          │                        │
+     │  })                  │                          │                        │
      │─────────────────────▶│                          │                        │
      │                      │                          │                        │
-     │                      │  ① key = providerID /    │                        │
-     │                      │        modelID / variant │                        │
+     │                      │  ① key =                 │                        │
+     │                      │  "anthropic/claude-      │                        │
+     │                      │   sonnet-4/default"     │                        │
      │                      │                          │                        │
      │                      │  ② languages.get(key)    │                        │
-     │                      │     → miss               │                        │
+     │                      │  → miss（首次调用）      │                        │
      │                      │                          │                        │
      │                      │  ③ prepareOptions(       │                        │
-     │                      │     model, package)      │                        │
-     │                      │     → { baseURL, fetch,  │                        │
-     │                      │       timeout, ... }     │                        │
+     │                      │     model,               │                        │
+     │                      │     "@ai-sdk/anthropic") │                        │
+     │                      │     → { baseURL,         │                        │
+     │                      │       fetch: wrapSSE,     │                        │
+     │                      │       timeout }           │                        │
      │                      │                          │                        │
-     │                      │  ④ trigger("aisdk.sdk") │                        │
+     │                      │  ④ 触发 "aisdk.sdk"     │                        │
      │                      │─────────────────────────▶│                        │
      │                      │                          │  import("@ai-sdk/     │
      │                      │                          │    anthropic")        │
-     │                      │                          │  → createAnthropic(   │
-     │                      │                          │      options)         │
-     │                      │                          │  → SDK 实例           │
+     │                      │                          │  createAnthropic(     │
+     │                      │                          │    options)           │
+     │                      │                          │◀── SDK 实例 ─────────│
      │                      │◀──── { sdk } ───────────│                        │
      │                      │                          │                        │
-     │                      │  ⑤ trigger("aisdk.      │                        │
-     │                      │     language")           │                        │
+     │                      │  ⑤ 触发 "aisdk.language"│                        │
      │                      │─────────────────────────▶│                        │
      │                      │                          │  sdk.languageModel(   │
-     │                      │                          │    model.apiID)       │
-     │                      │                          │──────────────────────▶│  LanguageModelV3
+     │                      │                          │    "claude-sonnet-4") │
+     │                      │                          │──────────────────────▶│  create LanguageModel
      │                      │                          │◀── LanguageModelV3 ──│
      │                      │◀── { language } ────────│                        │
      │                      │                          │                        │
      │                      │  ⑥ languages.set(key,    │                        │
      │                      │     language)            │                        │
+     │                      │  (缓存，下次直接返回)     │                        │
      │                      │                          │                        │
      │◀── LanguageModelV3 ─│                          │                        │
      │                      │                          │                        │
-     │  ▲ 第二次调用:       │                          │                        │
-     │  language(同模型)    │                          │                        │
+     │  ▲ 第二次调用        │                          │                        │
+     │  (同 provider/       │                          │                        │
+     │   同 model):         │                          │                        │
+     │  language(...)       │                          │                        │
      │─────────────────────▶│                          │                        │
      │                      │  languages.get(key)      │                        │
-     │                      │  → HIT! 直接返回          │                        │
-     │◀── (cached) ────────│  跳过 ③④⑤⑥              │                        │
+     │                      │  → HIT!                  │                        │
+     │                      │  (跳过 ③④⑤⑥)            │                        │
+     │◀── (cached) ────────│                          │                        │
 ```
 
 ---
 
-## 6.8 本章小结
+## 6.8 ⚠️ 常见错误
 
-| Java 概念 | AISDK 对应 | 优势 |
-|-----------|-----------|------|
-| 策略模式 + 工厂模式 | `prepareOptions` + `trigger("aisdk.sdk")` | 无需修改核心代码即可新增提供商 |
-| `ConcurrentHashMap` 缓存 | `Map<string, LanguageModelV3>` | 避免重复初始化 |
-| `CompletableFuture.orTimeout()` | `wrapSSE` chunk-level timeout | 细粒度的超时控制 |
-| `RestTemplate` 自定义拦截器 | 自定义 `fetch` 包装 | 统一的超时/请求体处理 |
+**错误 1：没有配置 chunkTimeout 导致流卡死**
+
+```bash
+# 在 opencode.json 中配置
+{
+  "providers": {
+    "anthropic": {
+      "options": {
+        "chunkTimeout": 10000  # 10 秒 chunk 超时
+      }
+    }
+  }
+}
+# 如果不配——没有 chunk 级超时保护
+```
+
+**错误 2：混淆请求级超时和 chunk 级超时**
+
+```
+请求级超时 (timeout):        从发起请求到收到完整响应的最大时间
+Chunk 级超时 (chunkTimeout): SSE 流中两个 chunk 之间的最大间隔
+
+如果请求已建立，SSE 流正在接收数据——请求级超时不会触发
+Chunk 级超时是专门针对"流卡在中间"这个场景的
+```
+
+---
+
+## 6.9 本章小结
+
+| Java 概念 | AISDK 对应 | 核心区别 |
+|-----------|-----------|----------|
+| 策略模式 + 工厂模式 | `prepareOptions` + `trigger("aisdk.sdk")` | 插件可动态注册，不改核心代码 |
+| `ConcurrentHashMap` 缓存 | `Map<string, LanguageModelV3>` | 避免每次重复 import SDK |
+| `CompletableFuture.orTimeout()` | `wrapSSE` chunk 级超时 | 细粒度控制流中的每个 chunk |
+| `RestTemplate` 拦截器 | 自定义 `fetch` 包装 | 可同时处理多个 abort signal |
 | SPI / ServiceLoader | PluginV2 trigger | 无注册中心，纯函数组合 |
 
-**下一章预告**：Catalog——模型目录管理器。它和 AuthV2 紧密协作，管理"有哪些模型可用"以及"用哪个模型"的问题。
+**试试看**：在 AISDK 中新增一个模拟提供商（mock provider），用它测试 LanguageModel 的获取流程。
+1. 定义一个新的 model，providerID 设为 `"mock"`
+2. 注册一个插件处理 `aisdk.sdk` 钩子，返回一个模拟的 SDK
+3. 触发 `AISDK.Service.language()`，验证缓存是否生效

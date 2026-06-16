@@ -300,7 +300,57 @@ yield* callAPI().pipe(
 
 ---
 
-## 10.8 本章小结
+## 10.8 ⚠️ 常见错误
+
+**错误 1：在非 Effect 代码中使用 Flock 操作 Effect 状态**
+
+```typescript
+// ❌ 错误：在 Effect 外面用 Flock
+Flock.withLock("my-lock", async () => {
+  // 这里不能 yield*，无法使用 Effect 服务
+})
+
+// ✅ 正确：在 Effect 内部使用
+yield* Effect.promise(() =>
+  Flock.withLock("my-lock", async () => {
+    return await someAsyncOp()
+  })
+)
+```
+
+**错误 2：忘记日志文件的自动清理机制**
+
+如果手动删除了日志文件而没有通过 `Log.cleanup()`，日志系统只会在下次 `init` 时清理。如果长期运行不重启——日志文件不会自动减少。
+
+---
+
+## 10.9 试试看
+
+**练习**：用本章学到的工具函数实现一个"文件变更检测器"。
+
+需求：
+1. 用 `Hash.sha256()` 计算文件的哈希值
+2. 定期（用 `Retry.policy` 实现间隔）检查哈希是否变化
+3. 如果变化了，用 `Log` 记录"文件已变更"
+
+**期望代码结构**：
+
+```typescript
+function watchFile(path: string) {
+  return Effect.gen(function* () {
+    const log = Log.create({ service: "file-watcher" })
+    let lastHash = yield* computeHash(path)
+
+    // 用 Retry 实现轮询逻辑
+    // 每次轮询比较哈希值
+    // 变化时 log.info("file changed", { path, hash: newHash })
+  })
+}
+```
+
+---
+
+## 10.10 本章小结
 
 这一章介绍的工具函数看似简单，但它们是整个应用的"地基"：
 

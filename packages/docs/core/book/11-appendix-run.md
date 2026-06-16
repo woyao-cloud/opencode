@@ -284,6 +284,37 @@ rm -rf ~/.cache/opencode
 ### Q: 测试数据库在哪里？
 默认数据目录下的 `opencode.db`（SQLite 文件）。
 
+### Q: "yield*" 后面的 Effect 什么时候执行？
+
+很多刚接触 Effect 的开发者会误以为 `yield*` 和 `await` 一样——"调用时就执行了"。实际上，**Effect 在 `yield*` 时才执行**，在这之前它只是一个"描述"（类似 Java 的 `Supplier`）：
+
+```typescript
+// 这段代码只是"描述"了一个操作，什么都没发生
+const effect = Effect.sync(() => console.log("hello"))
+// → 控制台没有输出
+
+// 直到 yield* 才真正执行
+yield* effect
+// → 控制台输出 "hello"
+```
+
+这个区别很重要：你可以在 `yield*` 之前对 Effect 做各种变换（`.pipe`、`.retry`、`.timeout`），它们都不会真正执行。`yield*` 才是执行触发器。
+
+### Q: "TypeError: Cannot read properties of undefined" 怎么排查？
+
+这是 TypeScript 中最常见的运行期错误之一，通常原因是一个链式调用中的某个方法返回了 `undefined`。排查步骤：
+
+1. **检查 `yield*` 的返回值**——如果 `yield* someEffect` 的结果是 `undefined`，后续使用它就会报这个错
+2. **检查可选链**——如果需要安全地访问可能为空的属性，用 `?.` 操作符
+3. **检查 Schema 解码**——`Schema.decodeUnknownSync` 在数据不匹配时会抛 ParseError，而不是返回 undefined
+
+### Q: Effect 中的 Layer 循环依赖怎么处理？
+
+Effect 在编译期就能检测到循环依赖，不需要 Spring 的三级缓存。如果你遇到循环依赖，说明你的设计有问题——A 依赖 B，B 又依赖 A。解决方案：
+
+1. **提取公共部分**——A 和 B 共同依赖的部分提取成 C
+2. **拆分服务**——把 A 拆成 A1（不依赖 B）和 A2（依赖 B）
+
 ---
 
 ## 11.6 全书回顾
