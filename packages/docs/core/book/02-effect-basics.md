@@ -642,7 +642,313 @@ const runnable = processMessage.pipe(Layer.provide(AppLayer))
 
 ---
 
-## 2.8 本章小结
+---
+
+## 2.8 实战：SessionProcessor —— Effect 在 OpenCode 中的核心应用
+
+前面我们一直在讲概念和类比。现在让我们打开 `packages/opencode/src/session/processor.ts`——OpenCode 最核心的文件之一，看看 Effect 在实际项目中是怎么用的。
+
+### 2.8.1 引入多个依赖
+
+```typescript
+// processor.ts:88-104
+export const layer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    // yield* 一次性声明所有依赖——每个对应一个 Context.Tag
+    const session = yield* Session.Service     // 会话 CRUD
+    const config = yield* Config.Service       // 配置读取
+    const bus = yield* Bus.Service             // 事件总线
+    const snapshot = yield* Snapshot.Service   // 文件快照
+    const agents = yield* Agent.Service        // Agent 管理
+    const llm = yield* LLM.Service             // LLM 调用
+    const permission = yield* Permission.Service // 权限校验
+    const plugin = yield* Plugin.Service       // 插件系统
+    const status = yield* SessionStatus.Service // 会话状态
+    const scope = yield* Scope.Scope           // 资源管理
+
+    // ... 在这些依赖的基础上构建业务逻辑
+  })
+)
+```
+
+**这里发生了什么？**
+
+12 个 `yield*`，每个获取一个服务。在 Java 中，这些可能是 `@Autowired` 字段。在 Effect 中，每个依赖都是显式的——如果你忘了提供某个依赖，编译器会告诉你。
+
+注意 `Layer` 的泛型签名：
+
+```typescript
+Layer.effect(
+  Service,                              // 提供: SessionProcessor
+  Effect.gen(function* () { ... })      // 依赖: Session + Config + Bus + ...
+)
+// 等价于 Layer<Service, never, Session | Config | Bus | ...>
+```
+
+### 2.8.2 业务核心：处理 LLM 流
+
+```typescript
+// processor.ts:721-750
+const process = Effect.fn("SessionProcessor.process")(function* (streamInput) {
+  return yield* Effect.gen(function* () {
+    // 创建一个内层 Effect 做主要工作
+    yield* Effect.gen(function* () {
+      // 获取 LLM 流
+      const stream = llm.stream(streamInput)
+
+      // 用 Stream 处理每个事件
+      yield* stream.pipe(
+        Stream.tap((event) => handleEvent(event)),  // 处理每个事件
+        Stream.takeUntil(() => ctx.needsCompaction), // 条件终止
+        Stream.runDrain,                             // 消费完整个流
+      )
+    }).pipe(
+      // 组合 1：中断处理
+      Effect.onInterrupt(() => /* 标记中断 */),
+
+      // 组合 2：错误过滤（非中断错误才传播）
+      Effect.catchCauseIf(
+        (cause) => !Cause.hasInterruptsOnly(cause),
+        (cause) => Effect.fail(Cause.squash(cause)),
+      ),
+
+      // 组合 3：重试
+      Effect.retry(SessionRetry.policy({
+        provider: input.model.providerID,
+        // ... 重试策略配置
+      })),
+
+      // 组合 4：最终清理
+      Effect.ensuring(cleanup()),
+    )
+  })
+})
+```
+
+**这段代码体现了 Effect 的核心组合能力**——你不需要写 try/catch 嵌套、不需要手写重试循环、不需要手动管理中断。所有"边缘逻辑"（重试、超时、清理）都通过 `.pipe()` 声明式组合到主流程上。
+
+### 2.8.3 Effect.fn 的命名追踪
+
+```typescript
+// 每个重要的 Effect 操作都被命名
+Effect.fn("SessionProcessor.create")(function* (input) { ... })
+Effect.fn("SessionProcessor.process")(function* (streamInput) { ... })
+Effect.fn("SessionProcessor.settleToolCall")(function* (toolCallID) { ... })
+Effect.fn("SessionProcessor.readToolCall")(function* (toolCallID) { ... })
+Effect.fn("SessionProcessor.updateToolCall")(function* (toolCallID, update) { ... })
+Effect.fn("SessionProcessor.completeToolCall")(function* (toolCallID, output) { ... })
+Effect.fn("SessionProcessor.failToolCall")(function* (toolCallID, error) { ... })
+Effect.fn("SessionProcessor.cleanup")(function* () { ... })
+```
+
+这些名字在 OpenTelemetry 追踪中会显示为 Span 名称。当你在生产环境排查性能问题时，直接看追踪——"哦，`SessionProcessor.toolCall` 占了 80% 的时间"——而不是看一堆 `anonymous` 的堆栈。
+
+---
+
+## 2.9 Effect 的工作原理：一个 Effect 到底是什么
+
+这是理解 Effect 最关键的一个概念，也是很多 Java 开发者最容易困惑的地方。
+
+### 2.9.1 Effect 是一个"值"，不是一个"操作"
+
+很多刚接触 Effect 的人会误以为 `Effect.sync(() => console.log("hello"))` 会在定义时执行。**错了**。它只是创建了一个"值"——一个包含了"将来要做什么"的描述。
+
+```typescript
+// 这行代码不会打印任何东西
+const effect = Effect.sync(() => console.log("hello"))
+// effect 是一个"值"，类型是 Effect<void, never, never>
+// 它只是"描述"了 console.log("hello") 这个操作
+
+// 只有 yield* 了，Effect Runtime 才会真正执行
+yield* effect
+// → 控制台输出 "hello"
+```
+
+**类比 Java**：
+
+```java
+// Java 中，这和下面的区别类似：
+
+// 这是一个"值"——它不会执行任何操作
+Supplier<String> supplier = () -> {
+    System.out.println("hello");
+    return "done";
+};
+
+// 只有 .get() 了才会执行
+String result = supplier.get();
+// → 控制台输出 "hello"
+```
+
+`Effect<A, E, R>` 本质上就是一个"带类型的 Supplier"，只不过它比 Supplier 多了两个维度：**可能失败（E）** 和 **需要依赖（R）**。
+
+### 2.9.2 为什么要把"描述"和"执行"分开
+
+这是 Effect 最核心的设计决策。分开的好处是：
+
+**好处 1：你可以自由组合描述，而不触发副作用**
+
+```typescript
+// 在 yield* 之前，所有组合都是"免费"的——没有实际执行
+const withRetry = callAPI.pipe(Effect.retry(Schedule.exponential("1s")))
+const withTimeout = withRetry.pipe(Effect.timeout("30s"))
+const withFallback = withTimeout.pipe(
+  Effect.catchAll(() => Effect.succeed("fallback")),
+)
+// 到现在为止，API 还没有被调用过！
+// 所有组合都发生在"描述层"
+
+// 只有 yield* 才触发执行
+const result = yield* withFallback
+```
+
+这就像你写一份菜谱（描述），和实际烹饪（执行）是两回事。你可以随意修改菜谱——加调料、换烹饪方式——但食材不会因为你修改菜谱就被消耗掉。
+
+**好处 2：Effect Runtime 可以在执行前"检查"整个描述**
+
+```typescript
+// Runtime 知道整个执行计划：
+// 1. 调用 API
+// 2. 如果失败，指数退避重试
+// 3. 总超时 30 秒
+// 4. 全部失败就用 fallback
+
+// 基于这个"计划"，Runtime 可以优化执行方式：
+// - 是否要 fork 到新 Fiber？
+// - 是否要记录追踪 Span？
+// - 是否需要注入某些依赖？
+```
+
+在 Java 中，这些"计划"信息是分散的——try/catch 在编译成字节码后就丢失了结构化信息；重试循环在运行期才能确定要不要执行。
+
+### 2.9.3 Effect 的内部结构（简化）
+
+一个 Effect 本质上是一个"大联合类型"——不同的 Effect 操作对应不同的内部节点：
+
+```typescript
+// Effect 的内部表示（极度简化）
+type Effect<A, E, R> =
+  | { _tag: "Success"; value: A }                                // Effect.succeed
+  | { _tag: "Fail"; error: E }                                     // Effect.fail
+  | { _tag: "Sync"; evaluate: () => A }                            // Effect.sync
+  | { _tag: "Async"; register: (cb) => void }                     // Effect.async
+  | { _tag: "Gen"; generator: () => Generator<Effect<any, any, any>, A> }  // Effect.gen
+  | { _tag: "Retry"; effect: Effect<A, E, R>; policy: Schedule }  // Effect.retry
+  | { _tag: "Timeout"; effect: Effect<A, E, R>; duration: number } // Effect.timeout
+  // ... 还有几十种其他节点类型
+```
+
+如果把 `yield*` 想象成"解释器"——它遍历这个树状结构，解析每个节点：
+
+```
+遇到 Success → 返回值
+遇到 Fail → 传播错误
+遇到 Sync → 执行同步函数
+遇到 Async → 注册异步回调
+遇到 Gen → 进入 generator，继续 yield*
+遇到 Retry → 执行子 Effect，失败则按策略重试
+遇到 Timeout → 执行子 Effect，超时则中断
+```
+
+这种"可组合的数据结构 + 解释器"模式，就是 Effect 的核心工作方式。**它不是魔法，就是一个精心设计的 ADT（代数数据类型）+ 一个高效的 Interpreter（解释器）**。
+
+---
+
+## 2.10 如果不使用 Effect，怎么实现同样的功能
+
+理解了 Effect 是什么之后，让我们看看"没有 Effect"的世界长什么样。我们用一个具体的例子来对比。
+
+### 场景：一个带超时和重试的网络请求
+
+**使用 Effect**：
+
+```typescript
+function fetchData(url: string): Effect<string, FetchError, never> {
+  return Effect.gen(function* () {
+    const result = yield* http.get(url).pipe(
+      Effect.retry(Schedule.exponential("1s")),
+      Effect.timeout("10s"),
+    )
+    return result
+  })
+}
+```
+
+**不使用 Effect（原生 TypeScript）**：
+
+```typescript
+// 原生 TypeScript 版本
+async function fetchData(url: string): Promise<string> {
+  // 需要手动实现：重试 + 超时 + 错误类型
+  const MAX_RETRIES = 3
+  let lastError: Error | undefined
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+      const result = await fetch(url, { signal: controller.signal })
+        .then(r => r.text())
+
+      clearTimeout(timeoutId)
+      return result
+    } catch (error) {
+      lastError = error as Error
+      // 手动实现指数退避
+      if (attempt < MAX_RETRIES - 1) {
+        await new Promise(resolve =>
+          setTimeout(resolve, Math.pow(2, attempt) * 1000)
+        )
+      }
+    }
+  }
+
+  throw new FetchError(url, lastError!.message)
+}
+```
+
+**对比总结**：
+
+| 维度 | Effect 版本 | 原生版本 |
+|------|------------|---------|
+| 行数 | 8 行 | 25 行 |
+| 重试逻辑 | `Effect.retry(Schedule.exponential(...))` — 一行声明 | 手写 for 循环 + setTimeout |
+| 超时控制 | `Effect.timeout("10s")` — 一行声明 | 手写 AbortController + clearTimeout |
+| 错误类型 | `Effect<string, FetchError, never>` — 编译期保证 | `Promise<string>` — 运行期才知道抛什么 |
+| 可组合性 | 可以 .pipe 到其他 Effect | 需要包装新的 async 函数 |
+| 可测试性 | 可以 mock 任意层 | 需要 mock fetch 全局函数 |
+
+### 不使用 Effect 的另一种替代方案：类 ReactiveX/RxJS
+
+除了原生 async/await，Java 开发者可能更熟悉的另一种方案是 **响应式流**（RxJava/ReactiveX）：
+
+```java
+// Java RxJava
+public Single<String> fetchData(String url) {
+    return http.get(url)
+        .retry(3)
+        .timeout(10, TimeUnit.SECONDS)
+        .onErrorReturn(throwable -> "fallback");
+}
+```
+
+RxJava 和 Effect 在概念上有很多相似之处：
+
+| RxJava | Effect | 区别 |
+|--------|--------|------|
+| `Single<T>` | `Effect<T, E, R>` | Effect 多了依赖 R |
+| `.retry(3)` | `Effect.retry(schedule)` | Effect 支持更灵活的策略 |
+| `.timeout()` | `Effect.timeout()` | 语义相同 |
+| `.subscribe()` | `yield*` / `runPromise` | 触发执行的方式不同 |
+| `Scheduler` | `Effect Runtime` | Effect 集成更紧密 |
+
+**Effect 相比 RxJava 的核心优势**：RxJava 的 `Single` 没有"依赖"维度。如果你需要获取某个 Service 的实例,你需要在闭包中捕获它——和 Java 的 @Autowired 一样是隐式的。Effect 把依赖也纳入了类型系统。
+
+---
+
+## 2.11 本章小结
 
 | Java 概念 | Effect 对应 | 核心区别 |
 |-----------|------------|----------|

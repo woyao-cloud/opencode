@@ -356,6 +356,100 @@ yield* Effect.forkIn(scope)(
 
 ---
 
+## 4.5.1 在 OpenCode 中的实际应用：SessionProcessor 的事件处理
+
+现在让我们看看 EventV2 和 Stream 模式在 OpenCode 核心中的实际应用——`SessionProcessor` 处理 LLM 流的 `handleEvent` 函数。
+
+在 `processor.ts:214-630`，有一个近 400 行的 `handleEvent` 函数。它不是用 EventV2 的 `subscribe`，而是用 **Stream.tap 直接处理 LLM 流的每个事件**：
+
+```typescript
+// processor.ts:721-736
+yield* stream.pipe(
+  Stream.tap((event) => handleEvent(event)),  // 每次流事件 → 触发 handleEvent
+  Stream.takeUntil(() => ctx.needsCompaction), // 条件终止
+  Stream.runDrain,
+)
+```
+
+`handleEvent` 内部是一个 `switch`，处理 16 种事件类型：
+
+```typescript
+// processor.ts:214-630（简化）
+const handleEvent = Effect.fnUntraced(function* (value: StreamEvent) {
+  switch (value.type) {
+    case "start":
+      yield* status.set(ctx.sessionID, { type: "busy" })
+      return
+
+    case "reasoning-start":
+      // 创建 ReasoningPart，记录开始时间
+      ctx.reasoningMap[value.id] = { type: "reasoning", text: "" }
+      yield* session.updatePart(ctx.reasoningMap[value.id])
+      return
+
+    case "reasoning-delta":
+      // 追加推理文本
+      ctx.reasoningMap[value.id].text += value.text
+      yield* session.updatePartDelta({ ... })  // 推送到前端
+      return
+
+    case "text-start":
+      // 创建 TextPart
+      ctx.currentText = { type: "text", text: "" }
+      yield* session.updatePart(ctx.currentText)
+      return
+
+    case "text-delta":
+      // 追加文本（流式输出）
+      ctx.currentText.text += value.text
+      yield* session.updatePartDelta({ ... })
+      return
+
+    case "tool-call":
+      // 处理工具调用
+      yield* updateToolCall(value.toolCallId, { status: "running" })
+      // 检测死循环
+      if (isDoomLoop(value)) {
+        yield* permission.ask({ permission: "doom_loop", ... })
+      }
+      return
+
+    case "tool-result":
+      // 工具执行完成，处理结果
+      yield* completeToolCall(value.toolCallId, output)
+      return
+
+    case "finish-step":
+      // 步骤结束，统计 token 用量
+      ctx.assistantMessage.cost += usage.cost
+      yield* session.updateMessage(ctx.assistantMessage)
+      // 异步生成摘要
+      yield* summary.summarize({ ... }).pipe(
+        Effect.ignore, Effect.forkIn(scope)
+      )
+      return
+  }
+})
+```
+
+**这段代码体现了 Effect 的事件处理哲学**：
+
+1. **每个事件类型是联合类型的一个分支**——`StreamEvent` 是一个联合类型，`switch(value.type)` 的每个 case 都是类型安全的
+2. **不可变更新**——`ctx.currentText` 的更新通过 `session.updatePartDelta()` 持久化，而不是直接修改
+3. **错误隔离**——每个 case 独立处理，一个 case 失败不会影响其他 case
+4. **资源管理**——`summary.summarize()` 被 `forkIn(scope)`——scope 关闭时自动取消
+
+**对比 Java 的事件处理**：
+
+```java
+// Java 中处理类似场景
+// 通常是一个"大 Listener 接口" + "多个实现类"
+// 或者是一个"大 if-else" + "回调"
+// 没有类型安全的 switch，没有自动的资源管理
+```
+
+---
+
 ## 4.6 EventV2 源码走读
 
 ```typescript

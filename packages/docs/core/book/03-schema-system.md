@@ -616,6 +616,103 @@ function findUser(id: string): Effect<User, never, never> { ... }
 
 ---
 
+## 3.7 实战：MessageV2 —— OpenCode 中的消息模型
+
+让我们打开 `packages/opencode/src/session/message-v2.ts`，看看 OpenCode 如何用 Schema 定义 AI 会话中的消息结构。
+
+### 3.7.1 消息的多种形态
+
+一条 AI 会话消息可以是：
+
+- **文本**——AI 生成的回复文本
+- **工具调用**——AI 要求执行某个工具
+- **工具结果**——工具执行后的返回
+- **推理**——AI 的推理过程
+- **步骤开始/结束**——标记处理步骤
+
+这些不同的形态，在 OpenCode 中用一个联合类型表示：
+
+```typescript
+// 每个 part 是一种"消息片段"
+type Part =
+  | TextPart      // { type: "text", text: string }
+  | ToolPart      // { type: "tool", tool: string, state: ToolState }
+  | ReasoningPart // { type: "reasoning", text: string }
+  | StepPart      // { type: "step-start" | "step-finish" }
+```
+
+**和 Java 的对比**：
+
+```java
+// Java：用继承体系
+public abstract class Part { }
+public class TextPart extends Part {
+    private String text;
+}
+public class ToolPart extends Part {
+    private String tool;
+    private ToolState state;
+}
+
+// 使用时需要 instanceof 判断
+Part part = getPart();
+if (part instanceof TextPart) {
+    String text = ((TextPart) part).getText();
+}
+```
+
+```typescript
+// TypeScript：用联合类型
+type Part = TextPart | ToolPart | ReasoningPart | StepPart
+
+// 使用时根据 type 字段自动推断
+function handlePart(part: Part) {
+  switch (part.type) {
+    case "text":
+      // TypeScript 知道：part 是 TextPart
+      console.log(part.text)     // ✅
+      break
+    case "tool":
+      // TypeScript 知道：part 是 ToolPart
+      console.log(part.tool)     // ✅
+      break
+  }
+}
+```
+
+### 3.7.2 消息的生命周期
+
+一条消息在 `SessionProcessor`（`processor.ts`）中的生命周期是这样的：
+
+```
+1. LLM 返回 text-start 事件
+   → 创建 TextPart: { type: "text", text: "" }
+   → processor.ts:566-576
+
+2. LLM 返回 text-delta 事件（可能多次）
+   → 追加文本: { type: "text", text: "你好" } → "你好，请问..."
+   → processor.ts:578-589
+
+3. LLM 返回 text-end 事件
+   → TextPart 完成: { type: "text", text: "你好，请问需要什么帮助？" }
+   → processor.ts:591-622
+
+4. LLM 返回 tool-input-start 事件
+   → 创建 ToolPart: { type: "tool", tool: "read", state: { status: "pending" } }
+   → processor.ts:274-303
+
+5. LLM 返回 tool-call 事件 + 工具执行
+   → ToolPart 状态变为 running → processor.ts:321-379
+   → 工具系统执行并返回结果 → processor.ts:382-439
+
+6. LLM 返回 finish-step 事件
+   → 记录 token 用量、生成差异快照 → processor.ts:493-554
+```
+
+**关键观察**：每个事件类型对应 SCHEMA 联合类型的一个分支，`handleEvent` 函数用 `switch(value.type)` 分发。这种"联合类型 + switch 穷尽检查"的模式，是 Effect 生态中处理"多种可能性"的标准做法。
+
+---
+
 ## 3.8 试试看
 
 **练习**：为"电商订单"定义一套 Schema。

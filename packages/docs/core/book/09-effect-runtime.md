@@ -349,7 +349,288 @@ runtime.runFork(Layer.build(serviceB))  // Database 复用缓存
 
 ---
 
-## 9.6 Scope：资源生命周期管理
+## 9.5.1 实战：InstanceState —— Effect 的 ScopedCache 在 OpenCode 中的运用
+
+让我们打开 `packages/opencode/src/effect/instance-state.ts`，看 OpenCode 如何用 Effect 的 `ScopedCache` 实现"每个目录一个服务实例"。
+
+### 为什么需要 InstanceState
+
+OpenCode 是一个支持多工作区的应用——用户可以同时打开项目 A 和项目 B。每个项目有自己的服务实例（Git 客户端、MCP 连接、LSP 客户端）。如果两个项目共享同一个实例，状态会串。
+
+在 Java 中，你可能用一个 `ConcurrentHashMap<ProjectID, ServiceInstance>` 来管理。在 Effect 中，`ScopedCache` 提供了同样的能力——而且是类型安全的、自动清理的。
+
+### InstanceState 的实现
+
+```typescript
+// packages/opencode/src/effect/instance-state.ts:27-48
+export const make = <A, E, R>(
+  init: (ctx: InstanceContext) => Effect.Effect<A, E, R | Scope.Scope>,
+): Effect.Effect<InstanceState<A, E, ...>, never, R | Scope.Scope> =>
+  Effect.gen(function* () {
+    // 创建 ScopedCache——按字符串 key 缓存服务实例
+    const cache = yield* ScopedCache.make<string, A, E, R>({
+      capacity: Number.POSITIVE_INFINITY,
+      lookup: () =>
+        Effect.gen(function* () {
+          // key 是目录路径
+          // 第一次访问某目录时创建服务实例
+          return yield* init(yield* context)
+        }),
+    })
+
+    // 注册清理器——项目关闭时失效缓存
+    const off = registerDisposer((directory) =>
+      Effect.runPromise(
+        ScopedCache.invalidate(cache, directory)
+      ),
+    )
+
+    yield* Effect.addFinalizer(() => Effect.sync(off))
+    return { cache }
+  })
+
+// 获取当前目录的服务实例
+export const get = <A, E, R>(self: InstanceState<A, E, R>) =>
+  Effect.gen(function* () {
+    return yield* ScopedCache.get(self.cache, yield* directory)
+  })
+```
+
+### 在项目引导中的使用
+
+`packages/opencode/src/project/bootstrap.ts` 使用 InstanceState 来管理每个项目的服务：
+
+```typescript
+// 简化自 bootstrap.ts
+// 每个项目目录有自己的一套服务
+const projectServices = yield* InstanceState.make((ctx) =>
+  Effect.gen(function* () {
+    // 每个项目的独立服务
+    const git = yield* GitService.make(ctx.directory)
+    const mcp = yield* McpService.make(ctx.directory)
+    const lsp = yield* LspService.make(ctx.directory)
+
+    return { git, mcp, lsp }
+  }),
+)
+
+// 在某个项目中获取服务
+const services = yield* InstanceState.get(projectServices)
+// services.git 是这个项目的 Git 客户端
+// services.mcp 是这个项目的 MCP 连接
+```
+
+**对比 Java 实现**：
+
+```java
+// Java 实现同样功能
+public class ProjectServiceManager {
+    // 用 ConcurrentHashMap 管理
+    private final ConcurrentHashMap<String, ProjectServices> cache = new ConcurrentHashMap<>();
+
+    public ProjectServices get(String directory) {
+        return cache.computeIfAbsent(directory, dir -> {
+            GitService git = new GitService(dir);
+            McpService mcp = new McpService(dir);
+            LspService lsp = new LspService(dir);
+            return new ProjectServices(git, mcp, lsp);
+        });
+    }
+
+    public void invalidate(String directory) {
+        ProjectServices services = cache.remove(directory);
+        if (services != null) services.close(); // 手动清理
+    }
+}
+```
+
+**Effect 的优势**：ScopedCache 自动管理生命周期——Scope 关闭时，所有通过该 Scope 创建的缓存条目自动失效。Java 的 `ConcurrentHashMap` 没有"自动失效"这样的机制——你需要自己实现一个 `remove()` 调用链。
+
+---
+
+---
+
+## 9.5.2 Layer 的三种组合模式：mergeAll、provide、suspend
+
+Layer 不是只有一种用法。在 OpenCode 的源码中，三种常见的 Layer 模式各有不同的用途。
+
+### 模式 1：mergeAll —— 平行注册多个服务
+
+当多个服务互不依赖、需要平行注册时，用 `Layer.mergeAll`：
+
+```typescript
+// opencode 中平行注册多个基础设施层
+const baseLayers = Layer.mergeAll(
+  Config.defaultLayer,        // 配置
+  Image.defaultLayer,         // 图片处理
+  Bus.layer,                  // 事件总线
+  EventV2Bridge.defaultLayer, // 事件桥接
+  RuntimeFlags.defaultLayer,  // 运行时标志
+)
+```
+
+**适用场景**：这些服务**不相互依赖**，可以任意顺序初始化。
+
+### 模式 2：provide —— 串联依赖链
+
+当 B 依赖 A、C 依赖 B 时，用 `Layer.provide` 串联：
+
+```typescript
+// processor.ts:805-821
+export const defaultLayer = Layer.suspend(() =>
+  layer.pipe(
+    Layer.provide(Session.defaultLayer),        // SessionProcessor → Session
+    Layer.provide(Snapshot.defaultLayer),        // SessionProcessor → Snapshot
+    Layer.provide(Agent.defaultLayer),           // SessionProcessor → Agent
+    Layer.provide(LLM.defaultLayer),             // SessionProcessor → LLM
+    Layer.provide(Permission.defaultLayer),       // SessionProcessor → Permission
+    Layer.provide(Plugin.defaultLayer),           // SessionProcessor → Plugin
+    Layer.provide(SessionStatus.defaultLayer),    // SessionProcessor → SessionStatus
+    Layer.provide(RuntimeFlags.defaultLayer),     // SessionProcessor → RuntimeFlags
+  ),
+)
+```
+
+**依赖链的图形表示**：
+
+```
+SessionProcessor
+    │
+    ├── Session ─── Database
+    ├── LLM ──── Auth ──── Provider ──── Config
+    ├── Agent
+    ├── Plugin
+    └── Permission
+```
+
+依赖图是一个 DAG（有向无环图）。Layer.provide 确保**每个依赖只初始化一次**（通过 MemoMap）。
+
+### 模式 3：Layer.suspend —— 延迟初始化解决循环问题
+
+```typescript
+// processor.ts:805
+export const defaultLayer = Layer.suspend(() =>
+  layer.pipe(
+    Layer.provide(Session.defaultLayer),
+    // ...
+  ),
+)
+```
+
+`Layer.suspend` 的作用是：**延迟 Layer 的创建时机直到真正需要时**。这和 Java 的 `@Lazy` 注解类似。
+
+**什么时候需要 suspend？**
+
+如果 Layer A 依赖 Layer B，Layer B 也间接依赖 Layer A，Effect 在构建依赖图时就需要 suspend 来打破"立即求值"导致的初始化顺序问题。
+
+**一个具体的例子**：
+
+```typescript
+// ❌ 不用 suspend 可能遇到的问题：
+// 在模块顶层直接构建 Layer
+const fullLayer = layer.pipe(
+  Layer.provide(someLayer),  // 这里 someLayer 可能还没准备好
+)
+
+// ✅ 用 suspend 延迟到第一次使用时才构建
+export const defaultLayer = Layer.suspend(() =>
+  layer.pipe(
+    Layer.provide(someLayer),  // someLayer 此时已经定义了
+  ),
+)
+```
+
+---
+
+## 9.5.3 如果不使用 Layer，怎么管理依赖？
+
+这是一个很重要的问题——Effect 的 Layer 不是唯一的方式。我们看看其他选择，然后对比各自的优劣。
+
+### 方案 1：手动传参（没有 DI 框架）
+
+```typescript
+// 不用 Layer，手动传参
+class SessionProcessor {
+  constructor(
+    private session: SessionService,
+    private config: ConfigService,
+    private llm: LLMService,
+    private agent: AgentService,
+    private permission: PermissionService,
+    private plugin: PluginService,
+    // ... 十几个参数
+  ) {}
+
+  process(input: Input) {
+    // 直接使用 this.session, this.config, ...
+  }
+}
+
+// 使用
+const processor = new SessionProcessor(
+  new SessionService(new DatabaseService(config)),
+  new ConfigService(),
+  new LLMService(new AuthService(), new ProviderService(), config),
+  // ... 手动构造依赖链
+)
+```
+
+**问题**：构造函数的参数列表会非常长——`SessionProcessor` 真正需要的是 12 个依赖。手动传参意味着调用者必须知道如何创建这些依赖，而且深层嵌套难以维护。
+
+### 方案 2：服务定位器（Service Locator）
+
+```typescript
+// 不用 Layer，用全局服务定位器
+class Services {
+  static session: SessionService
+  static config: ConfigService
+  static llm: LLMService
+  // ...
+}
+
+// 初始化
+Services.session = new SessionService(...)
+
+// 使用
+class SessionProcessor {
+  process() {
+    const session = Services.session  // 从全局获取
+    const config = Services.config
+  }
+}
+```
+
+**问题**：和 Java 的 `static` 方法一样——测试时难以 mock，依赖是隐式的。
+
+### 方案 3：Spring 风格的 @Autowired 模拟
+
+```typescript
+// 模拟 Spring 的依赖注入
+class SessionProcessor {
+  @Inject session: SessionService
+  @Inject config: ConfigService
+  // ...
+
+  process() {
+    // 直接使用 this.session
+  }
+}
+```
+
+**问题**：TypeScript 不支持真正的装饰器注入。这个方案需要运行期反射，性能和类型安全都不好。
+
+### 三种方案对比
+
+| 方案 | 编译期检查 | 可测试性 | 代码量 | 学习成本 |
+|------|-----------|---------|--------|---------|
+| **手动传参** | ✅ 可以 | ✅ 容易 mock | 中等（构造函数长） | 低 |
+| **Service Locator** | ❌ 运行期才知道 | ❌ 难 mock（全局状态） | 少 | 低 |
+| **@Autowired 模拟** | ❌ 装饰器无类型检查 | ❌ 需要 DI 容器 | 少 | 中等 |
+| **Effect Layer** | ✅ **编译期检查** | ✅ 替换 Layer 即可 | 较少（声明式） | 较高 |
+
+**Effect Layer 的核心优势**：依赖关系是**显式的**（在类型签名 `Layer<A, E, R>` 中），而且是**编译期检查的**——如果你忘记提供 `Config.Service`，编译不会通过。
+
+---```
 
 ### 9.6.1 一个真实的资源泄漏问题
 
@@ -429,6 +710,79 @@ scope 创建 → 资源注册 → scope 关闭
 |------|------|--------|
 | 单个资源清理 | `try-with-resources` | `Effect.acquireRelease` |
 | 多个资源清理 | 手动管理或嵌套 try | `Effect.scoped` + `addFinalizer` |
+| 后台任务清理 | 手动管理线程池 | `forkIn(scope)` 自动中断 |
+| 任意时刻关闭 | 调 `close()` | Scope 关闭触发所有清理 |
+
+---
+
+## 9.6 Scope：资源生命周期管理
+
+### 9.6.1 一个真实的资源泄漏问题
+
+假设你的应用打开了一个文件监听器：
+
+```typescript
+function startWatcher() {
+  return Effect.gen(function* () {
+    const watcher = yield* openFileWatcher("/path")
+    yield* Effect.forkIn(scope)(
+      watcher.onChange((file) => handleChange(file))
+    )
+    // 问题：当应用关闭时，watcher 谁来关闭？
+  })
+}
+```
+
+在 Java 中，你会实现 `AutoCloseable`，然后用 `try-with-resources`：
+
+```java
+try (Watcher watcher = new FileWatcher("/path")) {
+    watcher.onChange(file -> handleChange(file));
+}
+```
+
+### 9.6.2 Effect 的 Scope
+
+```typescript
+Effect.scoped(
+  Effect.gen(function* () {
+    const watcher = yield* openFileWatcher("/path")
+    const scope = yield* Scope.Scope
+
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => watcher.close())
+    )
+
+    yield* Effect.forkIn(scope)(
+      watcher.onChange((file) => handleChange(file))
+    )
+    // scoped 块结束时：
+    // 1. 所有 forkIn(scope) 的 fiber 被中断
+    // 2. addFinalizer 自动调用
+    // 3. watcher.close() 被执行
+  })
+)
+```
+
+**Scope 的生命周期**：
+
+```
+scope 创建 → 资源注册 → scope 关闭
+                │               │
+                │               ├── 1. 中断所有 forkIn 的 fiber
+                │               ├── 2. 按 LIFO 顺序执行 finalizer
+                │               └── 3. 释放所有资源
+                │
+                ├── forkIn(scope)(fiber) → 生命周期绑定到 scope
+                └── addFinalizer(cleanup) → 注册清理函数
+```
+
+### 9.6.3 对比 Java 的资源管理
+
+| 场景 | Java | Effect |
+|------|------|--------|
+| 单个资源清理 | `try-with-resources` | `Effect.acquireRelease` |
+| 多个资源清理 | 手动或嵌套 try | `Effect.scoped` + `addFinalizer` |
 | 后台任务清理 | 手动管理线程池 | `forkIn(scope)` 自动中断 |
 | 任意时刻关闭 | 调 `close()` | Scope 关闭触发所有清理 |
 

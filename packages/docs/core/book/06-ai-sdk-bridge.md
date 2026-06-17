@@ -440,6 +440,98 @@ LLM.Service            AISDK.Service               Plugin                  @ai-s
 
 ---
 
+## 6.7 实战：LLM.Service —— 从 AISDK 到业务逻辑
+
+AISDK 提供了统一的 LanguageModel 获取接口。真正的业务逻辑在 `packages/opencode/src/session/llm.ts` 中——`LLM.Service`。
+
+### 6.7.1 LLM.Service 的依赖
+
+```typescript
+// session/llm.ts:62-74
+const live: Layer.Layer<
+  Service,
+  never,
+  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service | RuntimeFlags.Service
+> = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    const auth = yield* Auth.Service        // 获取凭证
+    const config = yield* Config.Service    // 读取配置
+    const provider = yield* Provider.Service // 获取提供商信息
+    const plugin = yield* Plugin.Service     // 触发插件钩子
+    const perm = yield* Permission.Service   // 权限检查
+    const flags = yield* RuntimeFlags.Service // 运行时标志
+
+    // 在这些依赖之上构建 stream() 方法
+    const run = Effect.fn("LLM.run")(function* (input) {
+      // ...
+    })
+  })
+)
+```
+
+**这里的关键**：LLM.Service 的 `R` 参数（依赖）有 6 个服务。Layer 链会保证在调用 `LLM.Service` 之前，所有 6 个服务都已经就绪。
+
+### 6.7.2 stream() 内部流程
+
+LLM.Service 的 `stream()` 方法内部使用 AISDK：
+
+```typescript
+// session/llm.ts 中的核心流程（简化）
+const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
+  // 1. 并行获取 4 个依赖
+  const [language, cfg, item, info] = yield* Effect.all(
+    [
+      provider.getLanguage(input.model),     // → 内部调用 AISDK.Service.language()
+      config.get(),
+      provider.getProvider(input.model.providerID),
+      auth.get(input.model.providerID),      // 获取认证信息
+    ],
+    { concurrency: "unbounded" },
+  )
+
+  // 2. 组装 system prompt
+  const system = buildSystemPrompt(input)
+
+  // 3. 触发插件钩子——允许插件修改参数
+  const params = yield* plugin.trigger("chat.params", { ... }, defaultParams)
+
+  // 4. 收集工具定义
+  const tools = resolveTools(input)
+
+  // 5. 调用 AI SDK streamText
+  return streamText({
+    model: language,       // 来自 AISDK 的 LanguageModelV3
+    messages: systemMessages,
+    tools: sortedTools,
+    temperature: params.temperature,
+    // ...
+  })
+})
+```
+
+**完整链路**：
+
+```
+LLM.Service.stream()
+    │
+    ├── provider.getLanguage() → AISDK.Service.language()
+    │     ├── 查缓存 → HIT，直接返回 LanguageModelV3
+    │     └── miss → trigger("aisdk.sdk") → trigger("aisdk.language") → 缓存
+    │
+    ├── Effect.all(...) ← 并行获取所有依赖
+    │
+    ├── plugin.trigger("chat.params") ← 插件修改请求参数
+    │
+    ├── resolveTools() ← 收集所有可用工具
+    │
+    └── streamText({ model, messages, tools }) ← AI SDK 核心调用
+          │
+          └── SSE stream ← 事件流 → handleEvent() → 流式输出到用户
+```
+
+---
+
 ## 6.8 ⚠️ 常见错误
 
 **错误 1：没有配置 chunkTimeout 导致流卡死**
