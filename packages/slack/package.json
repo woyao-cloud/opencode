@@ -13,7 +13,8 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "typescript": "catalog:",
-    "@typescript/native-preview": "catalog:"
+    "@types/vscode": "^1.94.0",
+    "@typescript/native-preview": "catalog:",
+    "typescript": "catalog:"
   }
 }

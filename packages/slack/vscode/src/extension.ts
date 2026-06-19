@@ -1,7 +1,8 @@
+/// <reference types="vscode" />
+import * as vscode from "vscode"
+
 // This method is called when your extension is deactivated
 export function deactivate() {}
-
-import * as vscode from "vscode"
 
 const TERMINAL_NAME = "opencode"
 
