@@ -12,7 +12,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const openTerminalDisposable = vscode.commands.registerCommand("opencode.openTerminal", async () => {
     // An opencode terminal already exists => focus it
-    const existingTerminal = vscode.window.terminals.find((t) => t.name === TERMINAL_NAME)
+    const existingTerminal = vscode.window.terminals.find((t: vscode.Terminal) => t.name === TERMINAL_NAME)
     if (existingTerminal) {
       existingTerminal.show()
       return
