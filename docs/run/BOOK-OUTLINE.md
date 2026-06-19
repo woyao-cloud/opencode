@@ -6,7 +6,7 @@
 
 ## 全书结构
 
-9 章 + 附录，每章统一结构：
+10 章 + 附录，每章统一结构：
 
 ```
 N.1 场景概述          — 自然语言描述
@@ -28,6 +28,8 @@ N.5 本章小结
 | 6 | 会话管理 | ~15 | `Effect.forEach`(concurrency), `Effect.timeout`, `Layer.suspend`, `serviceUse` |
 | 7 | 基础设施 | ~10 | `Effect.runSync`, `Effect.promise`, `makeRuntime` |
 | 8 | 桥接层 | ~8 | `EffectBridge` 四种模式, `Effect.runFork`, `Effect.runPromiseExit` |
+| 9 | 开发模式：bun run dev | ~7 | `Effect.never`, `Effect.promise`, `AppRuntime.runPromise` |
+| 10 | TUI 输入到 Agent 响应 | 全链路 | 串联前9章所有 Effect 方法，双线程 RPC 架构 |
 
 ## 附录
 
