@@ -34,7 +34,7 @@
 4. **特殊命令识别**：`exit`、`quit`、`:q` 直接退出，不走 AI 流程
 5. **Workspace 状态检查**：确保当前项目目录可用
 6. **Session 确定**：有 `sessionID` → 复用已有会话；无 `sessionID` → 调用 `sdk.client.session.create()` 创建新会话
-7. **模式分发**：
+7. **模式分发**：1
    - Shell 模式 → `sdk.client.session.shell()`（直接执行命令）
    - 斜杠命令（以 `/` 开头）→ `sdk.client.session.command()`（路由到 `/compact`、`/agent` 等命令处理器）
    - 普通文本 → `sdk.client.session.prompt()`（发送给 AI）
@@ -132,6 +132,36 @@ Effect.gen(function* () {
 
 这个阶段将用户的原始输入转化为结构化的消息对象，持久化到 SQLite，并通知 UI "Agent 和 Model 已确定"。
 
+**文件**：`session/prompt.ts` — ` loop 函数` line 1877
+const loop: (input: LoopInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.loop")(function\* (
+input: LoopInput,
+) {
+。。。
+}
+—— Effect 运行时把这个 generator 解释为一个 effect 的实现体。
+括号与整体：外层表达式把“具名的 Effect 函数”赋给 loop，因此调用 loop(someInput) 会返回一个 Effect 实例，可以被运行/fork/⼊队列/中断等。
+总结：这整行的作用是“声明并赋值一个有静态类型的、具名的 Effect 函数 loop”，其实现由一个 function\* generator 提供，Effect.fn(...) 为其添加名字和运行时可追踪性。
+
+const: 声明一个不可变绑定。
+loop: 变量名字 —— 这里是导出/使用的函数标识符。
+:: 类型注解的分隔符（声明 loop 的静态类型）。
+(input: LoopInput) => Effect.Effect<MessageV2.WithParts>: loop 的类型，是一个函数类型：
+input: LoopInput：参数名及其类型（传入一个 LoopInput）。
+=>：函数返回箭头。
+Effect.Effect<MessageV2.WithParts>：返回类型 —— 一个 Effect（异步/可中断的 effect） ，成功产物是 MessageV2.WithParts（具体 effect 框架的类型表示）。
+=: 赋值运算符，把右侧的值赋给 loop。
+Effect.fn("SessionPrompt.loop"): 调用 Effect 库的 fn 工具，返回一个高阶包装器；传入的名字 "SessionPrompt.loop" 用于给这个 effect 函数命名，便于运行时跟踪/tracing、日志和调试。
+(...)（紧接 Effect.fn(...) 之后的括号）: 把下面的 generator 函数作为参数立即传入 Effect.fn(...)，也就是“用这个 generator 构造一个具名的 effect 函数”。
+function* (input: LoopInput) { ... }: 一个 generator 函数（注意 function*），函数体内部会通过 yield/Effect 的 DSL 逐步产生/组合 Effect 操作
+
+**文件**：`Effect.fn`
+简短回答：Effect.fn("SessionPrompt.loop")(...) 把那段 generator（Effect 体）包成一个具名的、可调用的 effect 函数 —— 返回一个 (input: LoopInput) => Effect.Effect<MessageV2.WithParts>。
+
+功能：把 function\* 内的 Effect 逻辑包装成可复用的函数值，调用该函数会返回一个 Effect。
+好处：提供可读的函数名用于 tracing/调试/堆栈信息；使函数成为 runtime 可跟踪、中断、fork 的单元；类型签名更清晰可推导。
+对比：Effect.fnUntraced 不产生跟踪/命名开销；直接用 Effect.gen/Effect 表达式则没有命名/跟踪优势。
+所以在 loop 处使用 Effect.fn 是为了把主循环暴露为一个具名、可组合且可被 Effect 运行时追踪的 effect 函数。
+
 ### 子阶段 3b：runLoop（Agent 主循环）
 
 **文件**：`session/prompt.ts` — `runLoop()`
@@ -183,6 +213,7 @@ Effect.gen(function* () {
 ```
 
 循环退出后：
+
 - `compaction.prune()` — 后台清理被压缩的消息
 - `lastAssistant` — 返回最终 AI 消息
 - 发布 `session.status: idle` — 通知 UI "Agent 已完成"
@@ -269,18 +300,18 @@ Worker 线程:
 
 ### TUI 对不同事件的渲染方式
 
-| 事件类型 | 渲染方式 |
-|----------|----------|
-| `message.part.updated` (text, time.end 存在) | 文本逐字输出到消息时间线 |
-| `message.part.updated` (reasoning, time.end 存在) | 斜体灰色展示 "Thinking: ..." |
-| `message.part.updated` (tool, status=completed) | 工具内联展示：图标 + 标题 + 耗时 |
-| `message.part.updated` (tool, status=error) | ✗ 错误展示 |
-| `message.part.updated` (tool=tasks, status=running) | 子任务展示 |
-| `message.part.updated` (step-start / step-finish) | Footer 状态栏更新 |
-| `session.status` (type="busy") | Agent 正在处理 |
-| `session.status` (type="idle") | Agent 循环结束，退出事件循环 |
-| `session.error` | 收集错误信息 → `UI.error(err)` |
-| `permission.asked` | 展示权限请求 → 用户选择 → `client.permission.reply()` |
+| 事件类型                                            | 渲染方式                                              |
+| --------------------------------------------------- | ----------------------------------------------------- |
+| `message.part.updated` (text, time.end 存在)        | 文本逐字输出到消息时间线                              |
+| `message.part.updated` (reasoning, time.end 存在)   | 斜体灰色展示 "Thinking: ..."                          |
+| `message.part.updated` (tool, status=completed)     | 工具内联展示：图标 + 标题 + 耗时                      |
+| `message.part.updated` (tool, status=error)         | ✗ 错误展示                                            |
+| `message.part.updated` (tool=tasks, status=running) | 子任务展示                                            |
+| `message.part.updated` (step-start / step-finish)   | Footer 状态栏更新                                     |
+| `session.status` (type="busy")                      | Agent 正在处理                                        |
+| `session.status` (type="idle")                      | Agent 循环结束，退出事件循环                          |
+| `session.error`                                     | 收集错误信息 → `UI.error(err)`                        |
+| `permission.asked`                                  | 展示权限请求 → 用户选择 → `client.permission.reply()` |
 
 ---
 
@@ -403,23 +434,23 @@ sequenceDiagram
 
 ## 17.10 涉及的关键文件索引
 
-| 阶段 | 文件 | 核心函数 | 线程 |
-|------|------|---------|------|
-| 输入捕获 | `cli/cmd/tui/component/prompt/index.tsx` | `submit()`, `submitInner()` | 主线程 |
-| SDK 调用 | `packages/sdk/js/src/v2/gen/sdk.gen.ts` | `session.prompt()` | 主线程 |
-| RPC 代理 | `cli/cmd/tui/thread.ts` | `createWorkerFetch()` | 主线程 |
-| RPC 处理 | `cli/cmd/tui/worker.ts` | `Rpc.server()` | Worker |
-| HTTP 路由 | `server/routes/instance/httpapi/handlers/session.ts` | Handler | Worker |
-| 会话 Prompt | `session/prompt.ts` | `prompt()`, `runLoop()` | Worker |
-| LLM 通信 | `session/llm.ts`, `provider/transform.ts` | `stream()`, `message()` | Worker |
-| 协议解析 | `packages/llm/src/protocols/anthropic-messages.ts` | SSE 流式解析 | Worker |
-| 事件处理 | `session/processor.ts` | `process()` | Worker |
-| 工具执行 | `tool/*.ts`, `packages/llm/src/tool-runtime.ts` | `execute()`, `decodeAndExecute()` | Worker |
-| 事件持久化 | `sync/index.ts` | Projector | Worker |
-| 事件推送 | `bus/index.ts` → `GlobalBus` → RPC | `publish()` | Worker |
-| TUI 事件消费 | `cli/cmd/tui/context/sync.tsx` | `event.subscribe()` | 主线程 |
-| CLI 事件消费 | `cli/cmd/run.ts` | `loop()` | 主线程 |
-| UI 渲染 | `cli/cmd/tui/routes/session/index.tsx` | React/Ink 组件树 | 主线程 |
+| 阶段         | 文件                                                 | 核心函数                          | 线程   |
+| ------------ | ---------------------------------------------------- | --------------------------------- | ------ |
+| 输入捕获     | `cli/cmd/tui/component/prompt/index.tsx`             | `submit()`, `submitInner()`       | 主线程 |
+| SDK 调用     | `packages/sdk/js/src/v2/gen/sdk.gen.ts`              | `session.prompt()`                | 主线程 |
+| RPC 代理     | `cli/cmd/tui/thread.ts`                              | `createWorkerFetch()`             | 主线程 |
+| RPC 处理     | `cli/cmd/tui/worker.ts`                              | `Rpc.server()`                    | Worker |
+| HTTP 路由    | `server/routes/instance/httpapi/handlers/session.ts` | Handler                           | Worker |
+| 会话 Prompt  | `session/prompt.ts`                                  | `prompt()`, `runLoop()`           | Worker |
+| LLM 通信     | `session/llm.ts`, `provider/transform.ts`            | `stream()`, `message()`           | Worker |
+| 协议解析     | `packages/llm/src/protocols/anthropic-messages.ts`   | SSE 流式解析                      | Worker |
+| 事件处理     | `session/processor.ts`                               | `process()`                       | Worker |
+| 工具执行     | `tool/*.ts`, `packages/llm/src/tool-runtime.ts`      | `execute()`, `decodeAndExecute()` | Worker |
+| 事件持久化   | `sync/index.ts`                                      | Projector                         | Worker |
+| 事件推送     | `bus/index.ts` → `GlobalBus` → RPC                   | `publish()`                       | Worker |
+| TUI 事件消费 | `cli/cmd/tui/context/sync.tsx`                       | `event.subscribe()`               | 主线程 |
+| CLI 事件消费 | `cli/cmd/run.ts`                                     | `loop()`                          | 主线程 |
+| UI 渲染      | `cli/cmd/tui/routes/session/index.tsx`               | React/Ink 组件树                  | 主线程 |
 
 ---
 
