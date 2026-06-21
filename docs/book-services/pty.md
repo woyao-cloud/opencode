@@ -1,4 +1,5 @@
-# @opencode/Pty — 伪终端管理服务
+﻿# @opencode/Pty — 伪终端管理服务
+> 婧愭枃浠? `opencode/packages/opencode/src/pty/index.ts`
 
 ## 概述
 

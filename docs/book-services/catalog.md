@@ -1,4 +1,5 @@
-# @opencode/v2/Catalog — 目录索引服务
+﻿# @opencode/v2/Catalog — 目录索引服务
+> 婧愭枃浠? `opencode/packages/core/src/catalog.ts`
 
 ## 概述
 

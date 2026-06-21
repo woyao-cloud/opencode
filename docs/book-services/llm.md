@@ -1,4 +1,5 @@
-# @opencode/LLM — 大语言模型流式调用服务
+﻿# @opencode/LLM — 大语言模型流式调用服务
+> 婧愭枃浠? `opencode/packages/opencode/src/session/llm.ts`
 
 ## 概述
 

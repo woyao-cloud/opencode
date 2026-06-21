@@ -1,4 +1,5 @@
-# @opencode/BackgroundJob — 后台任务服务
+﻿# @opencode/BackgroundJob — 后台任务服务
+> 婧愭枃浠? `opencode/packages/opencode/src/background/job.ts`
 
 ## 概述
 

@@ -1,4 +1,5 @@
-# @opencode/PtyTicket — 终端连接票据服务
+﻿# @opencode/PtyTicket — 终端连接票据服务
+> 婧愭枃浠? `opencode/packages/opencode/src/pty/ticket.ts`
 
 ## 概述
 

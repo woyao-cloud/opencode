@@ -1,4 +1,5 @@
-# @opencode/Git — Git 命令执行服务
+﻿# @opencode/Git — Git 命令执行服务
+> 婧愭枃浠? `opencode/packages/opencode/src/git/index.ts`
 
 ## 概述
 

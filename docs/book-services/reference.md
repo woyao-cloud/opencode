@@ -1,4 +1,5 @@
-# @opencode/Reference — 引用解析服务
+﻿# @opencode/Reference — 引用解析服务
+> 婧愭枃浠? `opencode/packages/opencode/src/reference/reference.ts`
 
 ## 概述
 

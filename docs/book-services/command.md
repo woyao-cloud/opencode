@@ -1,4 +1,5 @@
-# @opencode/Command — 命令服务
+﻿# @opencode/Command — 命令服务
+> 婧愭枃浠? `opencode/packages/opencode/src/command/index.ts`
 
 ## 概述
 

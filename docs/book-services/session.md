@@ -1,4 +1,5 @@
-# @opencode/Session — 会话管理服务
+﻿# @opencode/Session — 会话管理服务
+> 婧愭枃浠? `opencode/packages/opencode/src/session/session.ts`
 
 ## 概述
 

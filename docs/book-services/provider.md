@@ -1,4 +1,5 @@
-# @opencode/Provider — AI 模型 Provider 管理
+﻿# @opencode/Provider — AI 模型 Provider 管理
+> 婧愭枃浠? `opencode/packages/opencode/src/provider/provider.ts`
 
 ## 概述
 

@@ -1,4 +1,5 @@
-# @opencode/v2/Auth — 认证服务
+﻿# @opencode/v2/Auth — 认证服务
+> 婧愭枃浠? `opencode/packages/core/src/auth.ts`
 
 ## 概述
 

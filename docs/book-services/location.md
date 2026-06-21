@@ -1,4 +1,5 @@
-# @opencode/Location — 位置/路径服务
+﻿# @opencode/Location — 位置/路径服务
+> 婧愭枃浠? `opencode/packages/core/src/location.ts`
 
 ## 概述
 

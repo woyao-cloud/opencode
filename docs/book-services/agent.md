@@ -1,4 +1,5 @@
-# @opencode/Agent — Agent 配置服务
+﻿# @opencode/Agent — Agent 配置服务
+> 婧愭枃浠? `opencode/packages/opencode/src/agent/agent.ts`
 
 ## 概述
 

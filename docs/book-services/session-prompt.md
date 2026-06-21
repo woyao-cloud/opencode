@@ -1,4 +1,5 @@
-# @opencode/SessionPrompt — 会话提示处理服务
+﻿# @opencode/SessionPrompt — 会话提示处理服务
+> 婧愭枃浠? `opencode/packages/opencode/src/session/prompt.ts`
 
 ## 概述
 

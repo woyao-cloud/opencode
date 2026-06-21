@@ -1,4 +1,5 @@
-# @opencode/Global — 全局状态服务
+﻿# @opencode/Global — 全局状态服务
+> 婧愭枃浠? `opencode/packages/core/src/global.ts`
 
 ## 概述
 

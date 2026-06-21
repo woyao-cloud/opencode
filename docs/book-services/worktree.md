@@ -1,4 +1,5 @@
-# @opencode/Worktree — Git Worktree 管理服务
+﻿# @opencode/Worktree — Git Worktree 管理服务
+> 婧愭枃浠? `opencode/packages/opencode/src/worktree/index.ts`
 
 ## 概述
 

@@ -1,4 +1,5 @@
-# @opencode/Installation — 安装方式服务
+﻿# @opencode/Installation — 安装方式服务
+> 婧愭枃浠? `opencode/packages/opencode/src/installation/index.ts`
 
 ## 概述
 

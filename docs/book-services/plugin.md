@@ -1,4 +1,5 @@
-# @opencode/Plugin — 插件服务
+﻿# @opencode/Plugin — 插件服务
+> 婧愭枃浠? `opencode/packages/opencode/src/plugin/index.ts`
 
 ## 概述
 

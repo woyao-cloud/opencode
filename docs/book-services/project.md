@@ -1,4 +1,5 @@
-# @opencode/Project — 项目发现与管理服务
+﻿# @opencode/Project — 项目发现与管理服务
+> 婧愭枃浠? `opencode/packages/opencode/src/project/project.ts`
 
 ## 概述
 

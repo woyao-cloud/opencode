@@ -1,4 +1,5 @@
-# @opencode/ModelsDev — 开发模型加载服务
+﻿# @opencode/ModelsDev — 开发模型加载服务
+> 婧愭枃浠? `opencode/packages/core/src/models.ts`
 
 ## 概述
 

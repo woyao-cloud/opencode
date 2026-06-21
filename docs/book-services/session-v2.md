@@ -1,4 +1,5 @@
-# @opencode/v2/Session — V2 会话服务（新版事件驱动架构）
+﻿# @opencode/v2/Session — V2 会话服务（新版事件驱动架构）
+> 婧愭枃浠? `opencode/packages/opencode/src/v2/session.ts`
 
 ## 概述
 

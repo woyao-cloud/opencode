@@ -1,4 +1,5 @@
-# @opencode/File — 文件操作服务
+﻿# @opencode/File — 文件操作服务
+> 婧愭枃浠? `opencode/packages/opencode/src/file/index.ts`
 
 ## 概述
 

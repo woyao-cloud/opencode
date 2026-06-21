@@ -1,4 +1,5 @@
-# @opencode/LSP — LSP 语言服务器服务
+﻿# @opencode/LSP — LSP 语言服务器服务
+> 婧愭枃浠? `opencode/packages/opencode/src/lsp/lsp.ts`
 
 ## 概述
 

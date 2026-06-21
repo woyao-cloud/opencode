@@ -1,4 +1,5 @@
-# @opencode/SystemPrompt — 系统提示词生成服务
+﻿# @opencode/SystemPrompt — 系统提示词生成服务
+> 婧愭枃浠? `opencode/packages/opencode/src/session/system.ts`
 
 ## 概述
 

@@ -1,4 +1,5 @@
-# @opencode/SessionStatus — 会话状态追踪服务
+﻿# @opencode/SessionStatus — 会话状态追踪服务
+> 婧愭枃浠? `opencode/packages/opencode/src/session/status.ts`
 
 ## 概述
 

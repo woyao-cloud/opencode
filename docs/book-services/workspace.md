@@ -1,4 +1,5 @@
-# @opencode/Workspace — 远程工作区同步与管理服务
+﻿# @opencode/Workspace — 远程工作区同步与管理服务
+> 婧愭枃浠? `opencode/packages/opencode/src/control-plane/workspace.ts`
 
 ## 概述
 

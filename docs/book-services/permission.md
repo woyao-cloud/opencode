@@ -1,4 +1,5 @@
-# @opencode/Permission — 权限服务
+﻿# @opencode/Permission — 权限服务
+> 婧愭枃浠? `opencode/packages/opencode/src/permission/index.ts`
 
 ## 概述
 

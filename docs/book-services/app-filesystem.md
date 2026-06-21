@@ -1,4 +1,5 @@
-# @opencode/FileSystem — 文件系统服务
+﻿# @opencode/FileSystem — 文件系统服务
+> 婧愭枃浠? `opencode/packages/core/src/filesystem.ts`
 
 ## 概述
 

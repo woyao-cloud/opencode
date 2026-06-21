@@ -1,4 +1,5 @@
-# @opencode/SkillDiscovery — 远程技能发现服务
+﻿# @opencode/SkillDiscovery — 远程技能发现服务
+> 婧愭枃浠? `opencode/packages/opencode/src/skill/discovery.ts`
 
 ## 概述
 

@@ -1,4 +1,5 @@
-# @opencode/SyncEvent — 同步事件服务
+﻿# @opencode/SyncEvent — 同步事件服务
+> 婧愭枃浠? `opencode/packages/opencode/src/sync/index.ts`
 
 ## 概述
 
