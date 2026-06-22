@@ -11,6 +11,7 @@ import { ToolRegistry } from "@/tool/registry"
 import * as ProjectMod from "@/project/project"
 import { Command } from "@/command"
 import { ACPAgent } from "@/agent-bus"
+import { BackgroundJob } from "@/background/job"
 
 // Agent depends on Config (Agent's layer build effect yields Config.Service).
 // Layer.mergeAll treats all layers as siblings, so Agent can't find Config.
@@ -33,6 +34,7 @@ export const InstanceLayer = Layer.mergeAll(
   ProjectMod.defaultLayer,
   Command.defaultLayer,
   acpWithBus as any,
+  BackgroundJob.defaultLayer,
 )
 export const DefaultInstanceRef = Layer.succeed(InstanceRef, { directory: process.cwd(), worktree: "/" })
 export * as Bootstrap from "./bootstrap"
