@@ -5,6 +5,7 @@ import { InstallationVersion } from "@minicode/core/installation/version"
 import { UI } from "./cli/ui"
 import { runCommand } from "./cli/cmd/run"
 import { serveCommand } from "./cli/cmd/serve"
+import { planCommand } from "./cli/cmd/plan"
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
     e: e instanceof Error ? e.message : String(e),
@@ -77,6 +78,41 @@ yargs(args)
         }),
     (argv) => {
       void serveCommand({ port: argv.port as number, hostname: argv.hostname as string })
+    },
+  )
+  .command(
+    "plan",
+    "Generate a structured build plan from a prompt",
+    (y) =>
+      y
+        .option("prompt", {
+          type: "string",
+          alias: "p",
+          describe: "prompt describing what to build",
+        })
+        .option("build", {
+          type: "boolean",
+          alias: "b",
+          describe: "execute the plan after generating it",
+        })
+        .option("model", { type: "string", describe: "model id" })
+        .option("base-url", {
+          type: "string",
+          describe: "base URL for OpenAI-compatible",
+        })
+        .option("api-key", { type: "string", describe: "API key" }),
+    (argv) => {
+      process.stderr.write(UI.logo())
+      planCommand({
+        prompt: argv.prompt as string | undefined,
+        build: argv.build as boolean | undefined,
+        model: argv.model as string | undefined,
+        baseURL: argv["base-url"] as string | undefined,
+        apiKey: argv["api-key"] as string | undefined,
+      }).catch((e) => {
+        console.error("Error:", e instanceof Error ? e.message : String(e))
+        process.exit(1)
+      })
     },
   )
   .demandCommand(1)

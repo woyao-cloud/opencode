@@ -1,3 +1,5 @@
+import { mkdirSync } from "fs"
+import path from "path"
 import { Effect } from "effect"
 import * as Log from "@minicode/core/util/log"
 import { AppRuntime, init } from "../bootstrap"
@@ -63,7 +65,7 @@ async function interactive(opts: { model?: string; baseURL?: string; apiKey?: st
       },
     },
     write: {
-      description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does.",
+      description: "Write content to a file. Automatically creates parent directories if they don't exist.",
       parameters: {
         type: "object",
         properties: {
@@ -76,9 +78,12 @@ async function interactive(opts: { model?: string; baseURL?: string; apiKey?: st
         const fp = args.path ?? args.filePath
         if (!fp) throw new Error("path is required")
         console.log(`  📝 writing ${fp}...`)
+        // Auto-create parent directory
+        const dir = path.dirname(fp)
+        mkdirSync(dir, { recursive: true })
         await Bun.write(fp, args.content)
         const size = args.content.length
-        console.log(`  ✅ wrote ${size} bytes`)
+        console.log(`  ✅ wrote ${size} bytes to ${fp}`)
         return `Wrote ${size} bytes to ${fp}`
       },
     },
@@ -96,8 +101,8 @@ async function interactive(opts: { model?: string; baseURL?: string; apiKey?: st
         let cmd = command
         const isWin = process.platform === "win32"
         if (isWin) {
-          // mkdir -p / --parents → mkdir -Force (idempotent on Windows)
-          cmd = cmd.replace(/\bmkdir\s+(--parents|-p)\b/g, "mkdir -Force")
+          // mkdir -p / --parents → mkdir -Force (idempotent, suppress verbose output)
+          cmd = cmd.replace(/\bmkdir\s+(?:--parents|-p)\s+(.+)/g, "mkdir -Force $1 *>`$null")
         }
         console.log(`  🔧 running: ${cmd}`)
         const shell = isWin ? "powershell" : "sh"
@@ -105,8 +110,9 @@ async function interactive(opts: { model?: string; baseURL?: string; apiKey?: st
         const proc = Bun.spawnSync([shell, ...args], { cwd: cwd ?? process.cwd() })
         const stdout = proc.stdout.toString()
         const stderr = proc.stderr.toString()
+        const result = stdout || stderr || `Command completed (exit code ${proc.exitCode})`
         console.log(`  ✅ exit code: ${proc.exitCode}`)
-        if (proc.exitCode === 0) return stdout
+        if (proc.exitCode === 0) return result
         return `exit code: ${proc.exitCode}\n${stdout}\n${stderr}`
       },
     },
