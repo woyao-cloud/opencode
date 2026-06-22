@@ -10,8 +10,8 @@ export function attachWith<A, E, R>(effect: Effect.Effect<A, E, R>, refs: Refs):
 }
 export function attach<A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> {
   const fiber = Fiber.getCurrent()
-  const instance = fiber ? Context.getReferenceUnsafe(fiber.context, InstanceRef) : undefined
-  const workspace = fiber ? Context.getReferenceUnsafe(fiber.context, WorkspaceRef) : undefined
+  const instance = (fiber ? Context.getReferenceUnsafe(fiber.context, InstanceRef as any) : undefined) as InstanceContext | undefined
+  const workspace = (fiber ? Context.getReferenceUnsafe(fiber.context, WorkspaceRef as any) : undefined) as string | undefined
   return attachWith(effect, { instance, workspace })
 }
 export function makeRuntime<I, S, E>(service: Context.Service<I, S>, layer: Layer.Layer<I, E>) {

@@ -4,4 +4,3 @@ export const Env = {
   get MINICODE_LOG_LEVEL() { return process.env.MINICODE_LOG_LEVEL as "DEBUG" | "INFO" | "WARN" | "ERROR" | undefined },
   get MINICODE_LOG_PRINT() { return process.env.MINICODE_LOG_PRINT === "1" },
 }
-export * as Env from "./index"

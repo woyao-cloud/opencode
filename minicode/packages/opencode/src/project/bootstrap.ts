@@ -1,0 +1,15 @@
+import { Layer } from "effect"
+import { InstanceRef } from "@/effect/instance-ref"
+import { Config } from "@/config/config"
+import { Bus } from "@/bus"
+import { Permission } from "@/permission"
+import { Plugin } from "@/plugin"
+import { Skill } from "@/skill"
+import { Agent } from "@/agent/agent"
+import { Session } from "@/session/session"
+import { ToolRegistry } from "@/tool/registry"
+import * as ProjectMod from "@/project/project"
+import { Command } from "@/command"
+export const InstanceLayer = Layer.mergeAll(Config.defaultLayer, Bus.defaultLayer, Permission.defaultLayer, Plugin.defaultLayer, Skill.defaultLayer, Agent.defaultLayer, Session.defaultLayer, ToolRegistry.defaultLayer, ProjectMod.defaultLayer, Command.defaultLayer)
+export const DefaultInstanceRef = Layer.succeed(InstanceRef, { directory: process.cwd(), worktree: "/" })
+export * as Bootstrap from "./bootstrap"
