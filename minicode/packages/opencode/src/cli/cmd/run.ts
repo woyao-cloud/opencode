@@ -9,6 +9,9 @@ import * as Project from "@/project/project"
 import { LLM } from "@minicode/llm"
 import { OpenAI } from "@minicode/llm/providers"
 import { ascendingPartID } from "@/session/schema"
+import { TaskTool } from "@/tool/task"
+import * as Tool from "@/tool/tool"
+import { ToolRegistry } from "@/tool/registry"
 const log = Log.create({ service: "cli.run" })
 export async function runCommand(opts: { prompt?: string; interactive?: boolean; model?: string; baseURL?: string; apiKey?: string }) {
   await init()

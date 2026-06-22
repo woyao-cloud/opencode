@@ -5,12 +5,13 @@ import { ReadTool } from "./read"
 import { WriteTool } from "./write"
 import { BashTool } from "./bash"
 import { BuildFilesTool } from "./build_files"
+import { TaskTool } from "./task"
 const log = Log.create({ service: "tool.registry" })
 export interface Interface { readonly ids: () => Effect.Effect<ReadonlyArray<string>, unknown, unknown>; readonly all: () => Effect.Effect<ReadonlyArray<Tool.Def>, unknown, unknown> }
 export class Service extends Context.Service<Service, Interface>()("@minicode/ToolRegistry") {}
 export const layer = Layer.effect(Service, Effect.gen(function* () {
   const tools: Tool.Def[] = []
-  for (const info of [ReadTool, WriteTool, BashTool, BuildFilesTool]) {
+  for (const info of [ReadTool, WriteTool, BashTool, BuildFilesTool, TaskTool]) {
     const resolved = yield* (info as any)
     const def = yield* Tool.init(resolved) as any
     tools.push(def); log.info("registered tool", { id: def.id })
