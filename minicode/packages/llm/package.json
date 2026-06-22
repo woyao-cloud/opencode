@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "version": "0.0.1",
+  "name": "@minicode/llm",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./provider": "./src/provider.ts",
+    "./providers": "./src/providers/index.ts",
+    "./providers/openai": "./src/providers/openai.ts",
+    "./providers/openai-compatible": "./src/providers/openai-compatible.ts",
+    "./protocols": "./src/protocols/index.ts",
+    "./protocols/openai-chat": "./src/protocols/openai-chat.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "latest",
+    "@types/bun": "latest",
+    "typescript": "latest"
+  },
+  "dependencies": {
+    "@minicode/core": "workspace:*",
+    "@ai-sdk/openai": "^2.0.108",
+    "@ai-sdk/provider": "^2.0.3",
+    "ai": "^5.0.0",
+    "effect": "4.0.0-beta.65"
+  }
+}

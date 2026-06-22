@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "version": "0.0.1",
+  "name": "@minicode/opencode",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test",
+    "dev": "bun run src/index.ts"
+  },
+  "bin": {
+    "minicode": "./bin/minicode"
+  },
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "latest",
+    "@types/bun": "latest",
+    "@types/yargs": "latest",
+    "typescript": "latest"
+  },
+  "dependencies": {
+    "@minicode/core": "workspace:*",
+    "@minicode/llm": "workspace:*",
+    "@effect/platform-node": "^0.82.0",
+    "drizzle-orm": "^0.44.0",
+    "effect": "4.0.0-beta.65",
+    "yargs": "^18.0.0"
+  }
+}

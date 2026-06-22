@@ -1,0 +1,12 @@
+{
+  "extends": "@tsconfig/bun",
+  "compilerOptions": {
+    "types": ["bun"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@minicode/core/*": ["../core/src/*"],
+      "@minicode/llm/*": ["../llm/src/*"]
+    }
+  },
+  "include": ["src", "test"]
+}

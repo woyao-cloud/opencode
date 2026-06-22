@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "version": "0.0.1",
+  "name": "@minicode/core",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test"
+  },
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "latest",
+    "@types/bun": "latest",
+    "typescript": "latest"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
