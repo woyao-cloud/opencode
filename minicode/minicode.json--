@@ -1,0 +1,22 @@
+{
+  agents: [
+    {
+      name: build,
+      description: 火山引擎豆包模型,
+      prompt: You are a helpful coding assistant.,
+      model: {
+        providerID: openai-compatible,
+        modelID: doubao-1.5-pro-256k
+      }
+    }
+  ],
+  providers: [
+    {
+      id: volc,
+      name: 火山引擎方舟,
+      baseURL: https://ark.cn-beijing.volces.com/api/v3,
+      apiKey: <你的ARK_API_KEY>
+    }
+  ],
+  permission: { *: allow }
+}
