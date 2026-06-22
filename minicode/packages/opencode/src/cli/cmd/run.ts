@@ -6,6 +6,7 @@ import { Agent } from "@/agent/agent"
 import * as Project from "@/project/project"
 import { LLM } from "@minicode/llm"
 import { OpenAI } from "@minicode/llm/providers"
+import { ascendingPartID } from "@/session/schema"
 const log = Log.create({ service: "cli.run" })
 export async function runCommand(opts: { prompt?: string; interactive?: boolean; model?: string; baseURL?: string; apiKey?: string }) {
   await init()
@@ -21,7 +22,7 @@ async function singleShot(prompt: string, opts: { model?: string; baseURL?: stri
     const agent = yield* Agent.Service as any
     const info = yield* project.current()
     const sess = yield* session.create({ projectID: info.id, directory: info.directory, agent: "build" })
-    yield* session.appendMessage({ sessionID: sess.id, role: "user", parts: [{ id: "prt_0" as any, type: "text", text: prompt }] })
+    yield* session.appendMessage({ sessionID: sess.id, role: "user", parts: [{ id: ascendingPartID(), type: "text", text: prompt }] })
     const agentInfo = yield* agent.get("build")
     const system = agentInfo.prompt ?? "You are a helpful assistant."
     const messages = yield* session.messages(sess.id)
@@ -29,7 +30,7 @@ async function singleShot(prompt: string, opts: { model?: string; baseURL?: stri
     log.info("calling LLM", { messages: aiMessages.length })
     const result = yield* LLM.generate({ model, system, messages: aiMessages as any }) as any
     console.log(result.text)
-    yield* session.appendMessage({ sessionID: sess.id, role: "assistant", parts: [{ id: "prt_resp" as any, type: "text", text: result.text }] })
+    yield* session.appendMessage({ sessionID: sess.id, role: "assistant", parts: [{ id: ascendingPartID(), type: "text", text: result.text }] })
   }))
 }
 async function interactive(opts: { model?: string; baseURL?: string; apiKey?: string }) {

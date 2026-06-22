@@ -224,3 +224,50 @@ Logs go to `~/.minicode/log/` by default. Set `MINICODE_LOG_PRINT=1` to print to
 - `drizzle-orm` — SQLite ORM
 - `yargs` — CLI
 - `bun:sqlite` — SQLite (Bun built-in)
+
+
+
+minicode run -p "用 Python 写一个贪吃蛇"   --base-url https://ark.cn-beijing.volces.com/api/v3   --model doubao-1.5-pro-256k   --api-key
+
+火山引擎方舟 ARK API 是 OpenAI 兼容的，所以用 openai-compatible provider 就可以了。
+方式一：命令行参数（快速测试）
+minicode run -p "用 Python 写一个贪吃蛇" \
+  --base-url https://ark.cn-beijing.volces.com/api/v3 \
+  --model doubao-1.5-pro-256k \
+  --api-key <你的ARK_API_KEY>
+参数说明：
+- --base-url — 火山方舟的 API 端点，固定为 https://ark.cn-beijing.volces.com/api/v3
+- --model — 你接入的模型 ID（在火山方舟控制台 → "推理接入" 中可以查到，比如 doubao-1.5-pro-256k）
+- --api-key — 你的 API Key（火山方舟控制台 → "API Key 管理"）
+方式二：minicode.json 配置文件
+在项目目录下创建 minicode.json：
+{
+  agents: [
+    {
+      name: build,
+      description: 火山引擎豆包模型,
+      prompt: You are a helpful coding assistant.,
+      model: {
+        providerID: openai-compatible,
+        modelID: doubao-1.5-pro-256k
+      }
+    }
+  ],
+  providers: [
+    {
+      id: volc,
+      name: 火山引擎方舟,
+      baseURL: https://ark.cn-beijing.volces.com/api/v3,
+      apiKey: <你的ARK_API_KEY>
+    }
+  ],
+  permission: { *: allow }
+}
+配置好后直接运行（不需要每次传参数）：
+minicode run -p "用 Python 写一个贪吃蛇"
+方式三：环境变量
+set MINICODE_MODEL=doubao-1.5-pro-256k
+set OPENAI_API_KEY=<你的ARK_API_KEY>
+minicode run -p "你好" --base-url https://ark.cn-beijing.volces.com/api/v3
+---
+注意：火山方舟的模型 ID 不是通用名称，需要去控制台 (https://console.volcengine.com/ark) → "推理接入" → 查看你创建的接入点的"模型 ID"（类似 doubao-1.5-pro-256k 或 ep-2025xxxx-xxxxx 的格式）。API Key 也在控制台的 "API Key 管理" 中生成。
