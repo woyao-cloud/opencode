@@ -6,6 +6,8 @@ import { UI } from "./cli/ui"
 import { runCommand } from "./cli/cmd/run"
 import { serveCommand } from "./cli/cmd/serve"
 import { planCommand } from "./cli/cmd/plan"
+import { buildCommand } from "./cli/cmd/build"
+import { reviewCommand } from "./cli/cmd/review"
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
     e: e instanceof Error ? e.message : String(e),
@@ -112,6 +114,82 @@ yargs(args)
         prompt: argv.prompt as string | undefined,
         build: argv.build as boolean | undefined,
         review: argv.review as boolean | undefined,
+        model: argv.model as string | undefined,
+        baseURL: argv["base-url"] as string | undefined,
+        apiKey: argv["api-key"] as string | undefined,
+      }).catch((e) => {
+        console.error("Error:", e instanceof Error ? e.message : String(e))
+        process.exit(1)
+      })
+    },
+  )
+  .command(
+    "build",
+    "Execute a build plan from a JSON file or string",
+    (y) =>
+      y
+        .option("plan", {
+          type: "string",
+          describe: "plan JSON string",
+        })
+        .option("plan-file", {
+          type: "string",
+          describe: "path to plan JSON file",
+        })
+        .option("model", { type: "string", describe: "model id" })
+        .option("base-url", {
+          type: "string",
+          describe: "base URL for OpenAI-compatible",
+        })
+        .option("api-key", { type: "string", describe: "API key" }),
+    (argv) => {
+      process.stderr.write(UI.logo())
+      buildCommand({
+        plan: argv.plan as string | undefined,
+        planFile: argv["plan-file"] as string | undefined,
+        model: argv.model as string | undefined,
+        baseURL: argv["base-url"] as string | undefined,
+        apiKey: argv["api-key"] as string | undefined,
+      }).catch((e) => {
+        console.error("Error:", e instanceof Error ? e.message : String(e))
+        process.exit(1)
+      })
+    },
+  )
+  .command(
+    "review",
+    "Review a build result against a plan",
+    (y) =>
+      y
+        .option("plan", {
+          type: "string",
+          describe: "plan JSON string",
+        })
+        .option("plan-file", {
+          type: "string",
+          describe: "path to plan JSON file",
+        })
+        .option("build-result", {
+          type: "string",
+          describe: "build result JSON string",
+        })
+        .option("build-result-file", {
+          type: "string",
+          describe: "path to build result JSON file",
+        })
+        .option("model", { type: "string", describe: "model id" })
+        .option("base-url", {
+          type: "string",
+          describe: "base URL for OpenAI-compatible",
+        })
+        .option("api-key", { type: "string", describe: "API key" }),
+    (argv) => {
+      process.stderr.write(UI.logo())
+      reviewCommand({
+        plan: argv.plan as string | undefined,
+        planFile: argv["plan-file"] as string | undefined,
+        buildResult: argv["build-result"] as string | undefined,
+        buildResultFile: argv["build-result-file"] as string | undefined,
         model: argv.model as string | undefined,
         baseURL: argv["base-url"] as string | undefined,
         apiKey: argv["api-key"] as string | undefined,

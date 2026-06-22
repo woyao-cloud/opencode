@@ -128,3 +128,26 @@ minicode 的 `agent-bus` 是进程内 typed 消息总线，完整版 opencode �
 - 无后台执行模式
 - 无任务恢复（task_id）
 - 无并行 agent 执行
+
+
+Step 5 完成。所有 5 个步骤已全部实现，typecheck 通过。最终架构：
+minicode <command>
+Commands:
+  run      单次 prompt 或交互式 REPL
+  serve    HTTP 服务器
+  plan     Plan → [Build] → [Review] 管道（-p, --build, --review）
+  build    从 JSON 文件执行 build（--plan / --plan-file）
+  review   从 JSON 文件执行 review（--plan / --plan-file + --build-result / --build-result-file）
+Step 5 新增：
+| 文件 | 行数 | 职责 |
+|---|---|---|
+| pipeline/pipeline.ts | ~210 | Pipeline 状态机（idle→planning→planned→building→built→reviewing→done/failed） |
+| cli/cmd/build.ts | 89 | 独立 build 命令，从 JSON 文件或字符串读取 Plan 并执行 |
+| cli/cmd/review.ts | 106 | 独立 review 命令，从 JSON 文件读取 Plan + BuildResult 并验证 |
+重构： cli/cmd/plan.ts 从硬编码循环改为使用 Pipeline.run() 状态机，输出改为 Pipeline.formatReport()。
+5 个步骤的最终状态：
+- Step 1 ✅ — Plan Schema + build_files tool
+- Step 2 ✅ — Planner Agent + Builder SubAgent
+- Step 3 ✅ — Agent Message Bus（agent-bus/）
+- Step 4 ✅ — Reviewer Agent + Review Loop
+- Step 5 ✅ — 完整的 CLI 管道命令 + 状态机
