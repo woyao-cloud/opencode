@@ -1,7 +1,14 @@
 import * as Log from "@minicode/core/util/log"
+import { Effect } from "effect"
 import { AppRuntime, init } from "../bootstrap"
-import { Planner } from "@/pipeline/planner"
-import { Builder } from "@/pipeline/builder"
+import { Bus } from "@/bus"
+import { ACPAgent, ACPBus } from "@/agent-bus"
+import {
+  PlannerAgent,
+  BuilderAgent,
+  createCorrelationID,
+  MessageTypes,
+} from "@/agent-bus/message"
 import type { Plan } from "@/pipeline/plan"
 import type { BuildResult } from "@/pipeline/builder"
 import { OpenAI } from "@minicode/llm/providers"
@@ -24,41 +31,73 @@ export async function planCommand(opts: {
 
   const model = resolveModel(opts)
 
-  // Step 1: Plan — call LLM to generate a structured plan
-  console.log("Planning...")
-  const plan = await AppRuntime.runPromise(
-    Planner.plan({ prompt: opts.prompt, model }),
+  await AppRuntime.runPromise(
+    Effect.gen(function* () {
+      const bus = yield* Bus.Service
+      const acp = yield* ACPAgent.Service
+
+      // Start ACP agents so they can handle requests
+      yield* acp.start()
+
+      // Step 1: Plan — send PlanRequest via ACP, wait for PlanResult
+      console.log("Planning...")
+      const planCorrID = createCorrelationID()
+
+      const planEnvelope = yield* ACPBus.request<{ plan: Plan }>(
+        bus,
+        ACPBus.sendPlanRequest(bus, PlannerAgent, PlannerAgent, planCorrID, {
+          prompt: opts.prompt!,
+          model,
+        }),
+        MessageTypes.PlanResult,
+        planCorrID,
+      )
+
+      const plan = planEnvelope.content.plan
+      console.log(`\nPlan: ${plan.name}`)
+      console.log(`   Files: ${plan.files.length}`)
+      for (const f of plan.files) {
+        const deps = f.deps?.length ? ` (depends on: ${f.deps.join(", ")})` : ""
+        console.log(`   - ${f.path}${deps}`)
+      }
+
+      // Step 2: Build (if --build flag)
+      if (opts.build) {
+        console.log("\nBuilding...")
+        const buildCorrID = createCorrelationID()
+
+        const buildEnvelope = yield* ACPBus.request<{
+          name: string
+          files: Array<{ path: string; bytes: number; status: string; error?: string }>
+          totalBytes: number
+          totalFiles: number
+          failedFiles: number
+        }>(
+          bus,
+          ACPBus.sendBuildRequest(bus, BuilderAgent, BuilderAgent, buildCorrID, {
+            plan,
+          }),
+          MessageTypes.BuildResult,
+          buildCorrID,
+        )
+
+        const result = buildEnvelope.content
+        console.log(`\nBuild complete: ${result.totalFiles} files, ${result.totalBytes} bytes`)
+        for (const f of result.files) {
+          const icon = f.status === "written" ? "+" : f.status === "failed" ? "!" : "-"
+          console.log(`   ${icon} ${f.path} (${f.bytes} bytes)${f.error ? ` - ${f.error}` : ""}`)
+        }
+        if (result.failedFiles > 0) {
+          process.exit(1)
+        }
+      } else {
+        console.log("\nRun with --build to write the files")
+      }
+    }),
   ).catch((e: Error) => {
-    console.error("Planning failed:", e.message)
+    console.error("Error:", e.message)
     process.exit(1)
-  }) as Plan
-
-  console.log(`\nPlan: ${plan.name}`)
-  console.log(`   Files: ${plan.files.length}`)
-  for (const f of plan.files) {
-    const deps = f.deps?.length ? ` (depends on: ${f.deps.join(", ")})` : ""
-    console.log(`   - ${f.path}${deps}`)
-  }
-
-  // If --build flag is set, execute the plan
-  if (opts.build) {
-    console.log("\nBuilding...")
-    const result = await AppRuntime.runPromise(Builder.build(plan)).catch((e: Error) => {
-      console.error("Build failed:", e.message)
-      process.exit(1)
-    }) as BuildResult
-
-    console.log(`\nBuild complete: ${result.totalFiles} files, ${result.totalBytes} bytes`)
-    for (const f of result.files) {
-      const icon = f.status === "written" ? "+" : f.status === "failed" ? "!" : "-"
-      console.log(`   ${icon} ${f.path} (${f.bytes} bytes)${f.error ? ` - ${f.error}` : ""}`)
-    }
-    if (result.failedFiles > 0) {
-      process.exit(1)
-    }
-  } else {
-    console.log("\nRun with --build to write the files")
-  }
+  })
 }
 
 function resolveModel(opts: { model?: string; baseURL?: string; apiKey?: string }) {

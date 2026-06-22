@@ -10,12 +10,16 @@ import { Session } from "@/session/session"
 import { ToolRegistry } from "@/tool/registry"
 import * as ProjectMod from "@/project/project"
 import { Command } from "@/command"
+import { ACPAgent } from "@/agent-bus"
 
 // Agent depends on Config (Agent's layer build effect yields Config.Service).
 // Layer.mergeAll treats all layers as siblings, so Agent can't find Config.
 // Fix: provide Config to Agent via Layer.provideMerge, then merge the result
 // with the other sibling layers.
 const agentWithConfig = (Agent.defaultLayer as any).pipe(Layer.provideMerge(Config.defaultLayer as any))
+
+// ACP depends on Bus — provide it the same way
+const acpWithBus = (ACPAgent.defaultLayer as any).pipe(Layer.provideMerge(Bus.defaultLayer as any))
 
 export const InstanceLayer = Layer.mergeAll(
   Config.defaultLayer,
@@ -28,6 +32,7 @@ export const InstanceLayer = Layer.mergeAll(
   ToolRegistry.defaultLayer,
   ProjectMod.defaultLayer,
   Command.defaultLayer,
+  acpWithBus as any,
 )
 export const DefaultInstanceRef = Layer.succeed(InstanceRef, { directory: process.cwd(), worktree: "/" })
 export * as Bootstrap from "./bootstrap"
