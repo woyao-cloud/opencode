@@ -37,12 +37,91 @@ async function interactive(opts: { model?: string; baseURL?: string; apiKey?: st
   const model = resolveModel(opts)
   const history: Array<{ role: string; content: string }> = []
   console.log("minicode interactive mode. Type 'exit' to quit.\n")
+
+  // ai-sdk Tool definitions for file/shell operations
+  const tools = {
+    read: {
+      description: "Read the contents of a file, with optional offset and limit.",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: { type: "string", description: "Absolute path to the file" },
+          offset: { type: "number", description: "Line number to start from (1-based)" },
+          limit: { type: "number", description: "Max lines to read" },
+        },
+        required: ["filePath"],
+      },
+      execute: async ({ filePath, offset, limit }: { filePath: string; offset?: number; limit?: number }) => {
+        console.log(`  📖 reading ${filePath}...`)
+        const file = Bun.file(filePath)
+        const content = await file.text()
+        const lines = content.split("\n")
+        const start = offset ? offset - 1 : 0
+        const end = limit ? start + limit : lines.length
+        console.log(`  ✅ read ${end - start} lines`)
+        return lines.slice(start, end).join("\n")
+      },
+    },
+    write: {
+      description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does.",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: { type: "string", description: "Absolute path to the file to write" },
+          content: { type: "string", description: "Content to write" },
+        },
+        required: ["filePath", "content"],
+      },
+      execute: async ({ filePath, content }: { filePath: string; content: string }) => {
+        console.log(`  📝 writing ${filePath}...`)
+        await Bun.write(filePath, content)
+        const size = content.length
+        console.log(`  ✅ wrote ${size} bytes`)
+        return `Wrote ${size} bytes to ${filePath}`
+      },
+    },
+    bash: {
+      description: "Execute a shell command and return the output.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Shell command to execute" },
+          cwd: { type: "string", description: "Working directory (default: current)" },
+        },
+        required: ["command"],
+      },
+      execute: async ({ command, cwd }: { command: string; cwd?: string }) => {
+        console.log(`  🔧 running: ${command}`)
+        const isWin = process.platform === "win32"
+        const shell = isWin ? "cmd" : "sh"
+        const args = isWin ? ["/c", command] : ["-c", command]
+        const proc = Bun.spawnSync([shell, ...args], { cwd: cwd ?? process.cwd() })
+        const stdout = proc.stdout.toString()
+        const stderr = proc.stderr.toString()
+        console.log(`  ✅ exit code: ${proc.exitCode}`)
+        if (proc.exitCode === 0) return stdout
+        return `exit code: ${proc.exitCode}\n${stdout}\n${stderr}`
+      },
+    },
+  } as Record<string, any>
+
   const readline = await import("readline")
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   const ask = () => rl.question("> ", async (input) => {
     if (!input || input === "exit") { rl.close(); return }
     history.push({ role: "user", content: input })
-    try { const result = await AppRuntime.runPromise(LLM.generate({ model, system: "You are a helpful coding assistant.", messages: history as any })) as any; console.log(result.text); history.push({ role: "assistant", content: result.text }) } catch (e) { console.error("Error:", e instanceof Error ? e.message : String(e)) }
+    try {
+      const result = await AppRuntime.runPromise(LLM.generate({
+        model,
+        system: "You are a helpful coding assistant with access to read/write files and run shell commands. Use the write tool when you need to create or modify files.",
+        messages: history as any,
+        tools,
+      })) as any
+      history.push({ role: "assistant", content: result.text })
+      console.log(result.text)
+    } catch (e) {
+      console.error("Error:", e instanceof Error ? e.message : String(e))
+    }
     ask()
   })
   ask()

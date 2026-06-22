@@ -53,12 +53,15 @@ minicode run -p "规划一个贪吃蛇游戏" --base-url http://localhost:11434/
 set MINICODE_LOG_PRINT=1
 set MINICODE_LOG_LEVEL=DEBUG 
 # work well
+运行单会话
 ```
 set MINICODE_MODEL=glm-5.1:cloud
 set OPENAI_API_KEY=97c5090d09d7450086d97d017651de77.yJv_ANaLOWh217NSxJN_iUbU
 minicode run -p "hello" --base-url https://ollama.com/v1
 minicode run -p "规划一个贪吃蛇游戏" --base-url https://ollama.com/v1
 ```
+运行多会话 REPL mode
+minicode run -i --base-url https://ollama.com/v1
 # work well
 
 ## Using Ollama as the LLM backend

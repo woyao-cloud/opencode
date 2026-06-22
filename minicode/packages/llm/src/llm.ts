@@ -48,7 +48,10 @@ export function generate(input: {
         const opts: any = { model, messages }
         if (input.system) opts.system = input.system
         if (input.generation) Object.assign(opts, input.generation)
-        if (input.tools) opts.tools = input.tools
+        if (input.tools) {
+          opts.tools = input.tools
+          opts.maxSteps = 20
+        }
         return generateText(opts)
       },
       catch: (e) => e instanceof Error ? e : new Error(String(e)),
