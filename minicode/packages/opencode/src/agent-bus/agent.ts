@@ -1,18 +1,21 @@
 import { Context, Effect, Layer } from "effect"
 import * as Log from "@minicode/core/util/log"
 import { Bus } from "@/bus"
-import { ACPBus, onPlanRequest, onBuildRequest } from "./bus"
+import { ACPBus, onPlanRequest, onBuildRequest, onReviewRequest } from "./bus"
 import {
   type MessageEnvelope,
   type PlanRequestContent,
   type BuildRequestContent,
+  type ReviewRequestContent,
   PlannerAgent,
   BuilderAgent,
+  ReviewerAgent,
 } from "./message"
 import { Planner } from "@/pipeline/planner"
 import { Builder } from "@/pipeline/builder"
+import { Reviewer } from "@/pipeline/reviewer"
 
-const log = Log.create({ service: "acp.agent" })
+const log = Log.create({ service: "agent-bus.agent" })
 
 // ── Agent Registry Service ──────────────────────────────
 export interface Interface {
@@ -21,7 +24,7 @@ export interface Interface {
   readonly isRunning: () => boolean
 }
 
-export class Service extends Context.Service<Service, Interface>()("@minicode/ACP") {}
+export class Service extends Context.Service<Service, Interface>()("@minicode/AgentBus") {}
 
 // ── Agent implementations ────────────────────────────────
 
@@ -84,31 +87,58 @@ function createBuilderAgent(bus: Bus.Interface) {
   })
 }
 
+function createReviewerAgent(bus: Bus.Interface) {
+  return Effect.gen(function* () {
+    log.info("reviewer agent started")
+    const unsubscribe = yield* onReviewRequest(bus, (envelope: MessageEnvelope<ReviewRequestContent>) => {
+      const content = envelope.content
+      log.info("reviewer received request", { correlationID: envelope.correlationID, plan: content.plan.name })
+
+      Effect.runFork(
+        Effect.gen(function* () {
+          const result = yield* Reviewer.review({
+            plan: content.plan,
+            result: content.buildResult,
+          })
+          yield* ACPBus.sendReviewResult(bus, ReviewerAgent, envelope.source, envelope.correlationID, {
+            passed: result.passed,
+            feedback: result.feedback,
+          })
+        }).pipe(
+          Effect.catchEager((e: any) => Effect.sync(() => log.error("reviewer failed", { error: e?.message ?? String(e) }))),
+        ) as any,
+      )
+    })
+    return unsubscribe
+  })
+}
+
 // ── Layer ────────────────────────────────────────────────
 export const layer = Layer.effect(Service, Effect.gen(function* () {
   const bus = yield* Bus.Service
   let running = false
   let unsubscribers: Array<() => void> = []
 
-  const start = Effect.fn("ACP.start")(function* () {
+  const start = Effect.fn("AgentBus.start")(function* () {
     if (running) return
-    log.info("starting ACP agents")
+    log.info("starting agent-bus agents")
     const plannerUnsub = yield* createPlannerAgent(bus)
     const builderUnsub = yield* createBuilderAgent(bus)
-    unsubscribers = [plannerUnsub, builderUnsub]
+    const reviewerUnsub = yield* createReviewerAgent(bus)
+    unsubscribers = [plannerUnsub, builderUnsub, reviewerUnsub]
     running = true
-    log.info("ACP agents started")
+    log.info("agent-bus agents started")
   })
 
-  const stop = Effect.fn("ACP.stop")(function* () {
+  const stop = Effect.fn("AgentBus.stop")(function* () {
     if (!running) return
-    log.info("stopping ACP agents")
+    log.info("stopping agent-bus agents")
     for (const unsub of unsubscribers) {
       try { unsub() } catch { /* ignore */ }
     }
     unsubscribers = []
     running = false
-    log.info("ACP agents stopped")
+    log.info("agent-bus agents stopped")
   })
 
   const isRunning = () => running
@@ -118,4 +148,4 @@ export const layer = Layer.effect(Service, Effect.gen(function* () {
 
 export const defaultLayer = layer
 
-export * as ACPAgent from "./agent"
+export * as AgentBusAgent from "./agent"

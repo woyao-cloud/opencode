@@ -95,6 +95,11 @@ yargs(args)
           alias: "b",
           describe: "execute the plan after generating it",
         })
+        .option("review", {
+          type: "boolean",
+          alias: "r",
+          describe: "enable review loop (plan → build → review → re-plan)",
+        })
         .option("model", { type: "string", describe: "model id" })
         .option("base-url", {
           type: "string",
@@ -106,6 +111,7 @@ yargs(args)
       planCommand({
         prompt: argv.prompt as string | undefined,
         build: argv.build as boolean | undefined,
+        review: argv.review as boolean | undefined,
         model: argv.model as string | undefined,
         baseURL: argv["base-url"] as string | undefined,
         apiKey: argv["api-key"] as string | undefined,
