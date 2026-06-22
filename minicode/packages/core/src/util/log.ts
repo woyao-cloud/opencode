@@ -58,7 +58,8 @@ let last = Date.now()
 
 export function create(tags: Record<string, any> = {}): Logger {
   const service = tags["service"]
-  if (service && typeof service === "string") {
+  const nocache = tags["_nocache"]
+  if (service && typeof service === "string" && !nocache) {
     const cached = loggers.get(service)
     if (cached) return cached
   }
@@ -84,10 +85,10 @@ export function create(tags: Record<string, any> = {}): Logger {
     warn(m, e) { if (shouldLog("WARN")) write("WARN  " + build(m, e)) },
     error(m, e) { if (shouldLog("ERROR")) write("ERROR " + build(m, e)) },
     tag(k, v) { (tags ??= {})[k] = v; return result },
-    clone() { return create({ ...tags }) },
+    clone() { return create({ ...tags, _nocache: true }) },
   }
 
-  if (service && typeof service === "string") loggers.set(service, result)
+  if (service && typeof service === "string" && !nocache) loggers.set(service, result)
   return result
 }
 

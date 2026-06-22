@@ -4,7 +4,6 @@
   "name": "@minicode/opencode",
   "type": "module",
   "license": "MIT",
-  "private": true,
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "test": "bun test",

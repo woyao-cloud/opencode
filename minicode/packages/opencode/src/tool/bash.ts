@@ -6,7 +6,10 @@ export const BashTool = Tool.define("bash", Effect.gen(function* () {
     description: "Execute a shell command and return stdout/stderr.",
     parameters: Parameters,
     execute: (args: any) => Effect.gen(function* () {
-      const proc = Bun.spawn(["sh", "-c", args.command], { cwd: args.cwd ?? process.cwd(), stdout: "pipe", stderr: "pipe" })
+      const isWin = process.platform === "win32"
+      const shell = isWin ? "cmd" : "sh"
+      const shellArgs = isWin ? ["/c", args.command] : ["-c", args.command]
+      const proc = Bun.spawn([shell, ...shellArgs], { cwd: args.cwd ?? process.cwd(), stdout: "pipe", stderr: "pipe" })
       const exitCode = yield* Effect.tryPromise({ try: async () => proc.exited, catch: (e) => e instanceof Error ? e : new Error(String(e)) })
       const stdout = yield* Effect.tryPromise({ try: async () => new Response(proc.stdout).text(), catch: (e) => e instanceof Error ? e : new Error(String(e)) })
       const stderr = yield* Effect.tryPromise({ try: async () => new Response(proc.stderr).text(), catch: (e) => e instanceof Error ? e : new Error(String(e)) })

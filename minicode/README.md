@@ -7,6 +7,14 @@ A simplified opencode clone for learning the architecture. Built with Bun + Effe
 ```bash
 cd minicode
 bun install
+bun link        # registers the `minicode` command globally
+```
+
+After `bun link`, the `minicode` command is available everywhere via `C:\Users\<you>\.bun\bin\` (Bun's global bin directory). Verify:
+
+```bash
+minicode --help
+minicode --version    # 0.0.1
 ```
 
 ## Usage
@@ -14,9 +22,11 @@ bun install
 ### Single prompt
 
 ```bash
-bun run packages/opencode/src/index.ts run -p "hello"
-# or after install:
+# after bun install + bun link:
 minicode run -p "hello"
+
+# or without linking:
+bun run packages/opencode/src/index.ts run -p "hello"
 ```
 
 ### Interactive REPL
@@ -37,6 +47,7 @@ minicode serve --port 4096
 
 ```bash
 minicode run -p "hello" --base-url http://localhost:11434/v1 --model llama3
+minicode run -p "规划一个贪吃蛇游戏" --base-url http://localhost:11434/v1 --model llama3
 ```
 
 ## Using Ollama as the LLM backend
@@ -85,6 +96,9 @@ bun run packages/opencode/src/index.ts run \
   -p "Write a hello world in Python" \
   --base-url http://localhost:11434/v1 \
   --model qwen2.5-coder:7b
+
+MINICODE_LOG_PRINT=1 MINICODE_LOG_LEVEL=DEBUG 
+bun run packages/opencode/src/index.ts run   -p "Write a hello world in Python"   --base-url http://localhost:11434/v1   --model qwen2.5-coder:7b
 
 # Interactive REPL
 bun run packages/opencode/src/index.ts run \

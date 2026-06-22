@@ -16,7 +16,12 @@
     "./providers/openai": "./src/providers/openai.ts",
     "./providers/openai-compatible": "./src/providers/openai-compatible.ts",
     "./protocols": "./src/protocols/index.ts",
-    "./protocols/openai-chat": "./src/protocols/openai-chat.ts"
+    "./protocols/openai-chat": "./src/protocols/openai-chat.ts",
+    "./schema": "./src/schema/index.ts",
+    "./schema/ids": "./src/schema/ids.ts",
+    "./schema/messages": "./src/schema/messages.ts",
+    "./tool": "./src/tool.ts",
+    "./tool-runtime": "./src/tool-runtime.ts"
   },
   "devDependencies": {
     "@tsconfig/bun": "latest",
