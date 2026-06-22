@@ -6,16 +6,31 @@ import { Permission } from "@/permission"
 import { ProviderID, ModelID } from "@minicode/llm/schema/ids"
 import PROMPT_BUILD from "./prompt/build.txt"
 const log = Log.create({ service: "agent" })
-export const Info = Schema.Struct({ name: Schema.String, description: Schema.optional(Schema.String), mode: Schema.Literals(["subagent", "primary", "all"]), permission: Permission.Ruleset, model: Schema.optional(Schema.Struct({ modelID: ModelID, providerID: ProviderID })), prompt: Schema.optional(Schema.String) })
+export const Info = Schema.Struct({
+  name: Schema.String,
+  description: Schema.optional(Schema.String),
+  mode: Schema.Literals(["subagent", "primary", "all"]),
+  native: Schema.optional(Schema.Boolean),
+  hidden: Schema.optional(Schema.Boolean),
+  temperature: Schema.optional(Schema.Finite),
+  topP: Schema.optional(Schema.Finite),
+  color: Schema.optional(Schema.String),
+  permission: Permission.Ruleset,
+  model: Schema.optional(Schema.Struct({ modelID: ModelID, providerID: ProviderID })),
+  variant: Schema.optional(Schema.String),
+  prompt: Schema.optional(Schema.String),
+  options: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  steps: Schema.optional(Schema.Finite),
+})
 export type Info = Schema.Schema.Type<typeof Info>
 export interface Interface { readonly get: (agent: string) => Effect.Effect<Info, unknown, unknown>; readonly list: () => Effect.Effect<ReadonlyArray<Info>, unknown, unknown>; readonly defaultAgent: () => Effect.Effect<string, unknown, unknown> }
 export class Service extends Context.Service<Service, Interface>()("@minicode/Agent") {}
-function defaultInfo(): Info { return { name: "build", description: "Default build agent", mode: "primary", permission: [{ permission: "*", pattern: "*", action: "allow" }], prompt: PROMPT_BUILD } }
+function defaultInfo(): Info { return { name: "build", description: "Default build agent", mode: "primary", native: true, permission: [{ permission: "*", pattern: "*", action: "allow" }], prompt: PROMPT_BUILD } }
 export const layer = Layer.effect(Service, Effect.gen(function* () {
   const config = yield* Config.Service
   const state = yield* (InstanceState.make<ReadonlyArray<Info>>(Effect.fn("Agent.state")(function* (ctx) {
     const cfg = yield* config.get()
-    const fromConfig = cfg.agents.map((a: any): Info => ({ name: a.name, description: a.description, mode: "primary", permission: [{ permission: "*", pattern: "*", action: "allow" }], prompt: a.prompt, model: a.model ? { modelID: ModelID.make(a.model.modelID), providerID: ProviderID.make(a.model.providerID) } : undefined }))
+    const fromConfig = cfg.agents.map((a: any): Info => ({ name: a.name, description: a.description, mode: "primary", native: true, permission: [{ permission: "*", pattern: "*", action: "allow" }], prompt: a.prompt, model: a.model ? { modelID: ModelID.make(a.model.modelID), providerID: ProviderID.make(a.model.providerID) } : undefined }))
     const agents = fromConfig.length > 0 ? fromConfig : [defaultInfo()]
     log.info("loaded agents", { count: agents.length })
     return agents
