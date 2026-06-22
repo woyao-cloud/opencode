@@ -45,13 +45,13 @@ async function interactive(opts: { model?: string; baseURL?: string; apiKey?: st
       parameters: {
         type: "object",
         properties: {
-          filePath: { type: "string", description: "Absolute path to the file" },
+          path: { type: "string", description: "Absolute path to the file" },
           offset: { type: "number", description: "Line number to start from (1-based)" },
           limit: { type: "number", description: "Max lines to read" },
         },
-        required: ["filePath"],
+        required: ["path"],
       },
-      execute: async ({ filePath, offset, limit }: { filePath: string; offset?: number; limit?: number }) => {
+      execute: async ({ path: filePath, offset, limit }: { path: string; offset?: number; limit?: number }) => {
         console.log(`  📖 reading ${filePath}...`)
         const file = Bun.file(filePath)
         const content = await file.text()
@@ -67,17 +67,19 @@ async function interactive(opts: { model?: string; baseURL?: string; apiKey?: st
       parameters: {
         type: "object",
         properties: {
-          filePath: { type: "string", description: "Absolute path to the file to write" },
+          path: { type: "string", description: "Absolute path to the file to write" },
           content: { type: "string", description: "Content to write" },
         },
-        required: ["filePath", "content"],
+        required: ["path", "content"],
       },
-      execute: async ({ filePath, content }: { filePath: string; content: string }) => {
-        console.log(`  📝 writing ${filePath}...`)
-        await Bun.write(filePath, content)
-        const size = content.length
+      execute: async (args: { path?: string; filePath?: string; content: string }) => {
+        const fp = args.path ?? args.filePath
+        if (!fp) throw new Error("path is required")
+        console.log(`  📝 writing ${fp}...`)
+        await Bun.write(fp, args.content)
+        const size = args.content.length
         console.log(`  ✅ wrote ${size} bytes`)
-        return `Wrote ${size} bytes to ${filePath}`
+        return `Wrote ${size} bytes to ${fp}`
       },
     },
     bash: {
@@ -91,10 +93,15 @@ async function interactive(opts: { model?: string; baseURL?: string; apiKey?: st
         required: ["command"],
       },
       execute: async ({ command, cwd }: { command: string; cwd?: string }) => {
-        console.log(`  🔧 running: ${command}`)
+        let cmd = command
         const isWin = process.platform === "win32"
-        const shell = isWin ? "cmd" : "sh"
-        const args = isWin ? ["/c", command] : ["-c", command]
+        if (isWin) {
+          // mkdir -p / --parents → mkdir -Force (idempotent on Windows)
+          cmd = cmd.replace(/\bmkdir\s+(--parents|-p)\b/g, "mkdir -Force")
+        }
+        console.log(`  🔧 running: ${cmd}`)
+        const shell = isWin ? "powershell" : "sh"
+        const args = isWin ? ["-NoProfile", "-Command", cmd] : ["-c", cmd]
         const proc = Bun.spawnSync([shell, ...args], { cwd: cwd ?? process.cwd() })
         const stdout = proc.stdout.toString()
         const stderr = proc.stderr.toString()
