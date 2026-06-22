@@ -1,4 +1,5 @@
 ﻿# @opencode/Instruction — 指令文件加载服务
+> 源文件: `opencode/packages/opencode/src/session/instruction.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/session/instruction.ts`
 
 ## 概述

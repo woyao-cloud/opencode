@@ -1,4 +1,5 @@
 ﻿# @opencode/Ripgrep — Ripgrep 搜索服务
+> 源文件: `opencode/packages/opencode/src/file/ripgrep.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/file/ripgrep.ts`
 
 ## 概述

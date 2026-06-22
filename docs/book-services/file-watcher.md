@@ -1,4 +1,5 @@
 ﻿# @opencode/FileWatcher — 文件监控服务
+> 源文件: `opencode/packages/opencode/src/file/watcher.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/file/watcher.ts`
 
 ## 概述

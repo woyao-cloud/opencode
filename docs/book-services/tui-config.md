@@ -1,4 +1,5 @@
 ﻿# @opencode/TuiConfig — TUI 配置服务
+> 源文件: `opencode/packages/opencode/src/cli/cmd/tui/config/tui.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/cli/cmd/tui/config/tui.ts`
 
 ## 概述

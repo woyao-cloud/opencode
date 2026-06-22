@@ -1,4 +1,5 @@
 ﻿# @opencode/Auth — 认证凭据服务
+> 源文件: `opencode/packages/opencode/src/auth/index.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/auth/index.ts`
 
 ## 概述

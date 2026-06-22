@@ -1,4 +1,5 @@
 ﻿# @opencode/SessionSummary — 会话变更摘要服务
+> 源文件: `opencode/packages/opencode/src/session/summary.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/session/summary.ts`
 
 ## 概述

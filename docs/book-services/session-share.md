@@ -1,4 +1,5 @@
 ﻿# @opencode/SessionShare — 会话分享服务
+> 源文件: `opencode/packages/opencode/src/share/session.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/share/session.ts`
 
 ## 概述

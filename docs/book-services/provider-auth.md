@@ -1,4 +1,5 @@
 ﻿# @opencode/ProviderAuth — Provider OAuth 认证
+> 源文件: `opencode/packages/opencode/src/provider/auth.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/provider/auth.ts`
 
 ## 概述

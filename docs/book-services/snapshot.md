@@ -1,4 +1,5 @@
 ﻿# @opencode/Snapshot — 快照服务
+> 源文件: `opencode/packages/opencode/src/snapshot/index.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/snapshot/index.ts`
 
 ## 概述

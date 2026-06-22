@@ -1,4 +1,5 @@
 ﻿# @opencode/SessionRunState — 会话运行状态管理服务
+> 源文件: `opencode/packages/opencode/src/session/run-state.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/session/run-state.ts`
 
 ## 概述

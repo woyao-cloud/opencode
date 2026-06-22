@@ -1,4 +1,5 @@
 ﻿# @opencode/ToolRegistry — 工具注册中心
+> 源文件: `opencode/packages/opencode/src/tool/registry.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/tool/registry.ts`
 
 ## 概述

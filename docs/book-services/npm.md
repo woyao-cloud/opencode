@@ -1,4 +1,5 @@
 ﻿# @opencode/Npm — NPM 包管理服务
+> 源文件: `opencode/packages/core/src/npm.ts`
 > 婧愭枃浠? `opencode/packages/core/src/npm.ts`
 
 ## 概述

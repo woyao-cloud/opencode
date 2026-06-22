@@ -1,4 +1,5 @@
 ﻿# @opencode/SessionRevert — 会话回退服务
+> 源文件: `opencode/packages/opencode/src/session/revert.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/session/revert.ts`
 
 会话回退服务，负责将会话状态回退到指定的消息/片段位置，支持撤销回退操作，以及在确认后清理已回退的消息。

@@ -1,4 +1,5 @@
 ﻿# @opencode/ShareNext — 分享数据同步服务
+> 源文件: `opencode/packages/opencode/src/share/share-next.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/share/share-next.ts`
 
 ## 概述

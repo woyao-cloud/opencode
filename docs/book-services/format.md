@@ -1,4 +1,5 @@
 ﻿# @opencode/Format — 代码格式化服务
+> 源文件: `opencode/packages/opencode/src/format/index.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/format/index.ts`
 
 ## 概述

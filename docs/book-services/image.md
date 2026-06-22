@@ -1,4 +1,5 @@
 ﻿# @opencode/Image — 图像处理服务
+> 源文件: `opencode/packages/opencode/src/image/image.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/image/image.ts`
 
 ## 概述

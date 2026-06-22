@@ -1,4 +1,5 @@
 ﻿# @opencode/Skill — 技能服务
+> 源文件: `opencode/packages/opencode/src/skill/index.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/skill/index.ts`
 
 ## 概述

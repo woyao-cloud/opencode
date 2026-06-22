@@ -1,4 +1,5 @@
 ﻿# @opencode/InstanceBootstrap — 实例初始化编排服务
+> 源文件: `opencode/packages/opencode/src/project/bootstrap-service.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/project/bootstrap-service.ts`
 
 ## 概述

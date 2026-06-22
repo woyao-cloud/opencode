@@ -1,4 +1,5 @@
 ﻿# @opencode/InstanceStore — 实例生命周期管理服务
+> 源文件: `opencode/packages/opencode/src/project/instance-store.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/project/instance-store.ts`
 
 ## 概述

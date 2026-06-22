@@ -1,4 +1,5 @@
 ﻿# @opencode/MCP — MCP 协议客户端管理
+> 源文件: `opencode/packages/opencode/src/mcp/index.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/mcp/index.ts`
 
 ## 概述

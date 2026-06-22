@@ -1,4 +1,5 @@
 ﻿# @opencode/Event — 事件总线服务
+> 源文件: `opencode/packages/core/src/event.ts`
 > 婧愭枃浠? `opencode/packages/core/src/event.ts`
 
 ## 概述

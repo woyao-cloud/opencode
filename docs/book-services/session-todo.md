@@ -1,4 +1,5 @@
 ﻿# @opencode/SessionTodo — 会话任务列表服务
+> 源文件: `opencode/packages/opencode/src/session/todo.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/session/todo.ts`
 
 **源文件**: `packages/opencode/src/session/todo.ts`

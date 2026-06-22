@@ -1,4 +1,5 @@
 ﻿# @opencode/McpAuth — MCP OAuth 认证持久化
+> 源文件: `opencode/packages/opencode/src/mcp/auth.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/mcp/auth.ts`
 
 ## 概述

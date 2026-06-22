@@ -1,4 +1,5 @@
 ﻿# @opencode/Truncate — 工具输出截断
+> 源文件: `opencode/packages/opencode/src/tool/truncate.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/tool/truncate.ts`
 
 ## 概述

@@ -1,4 +1,5 @@
 ﻿# @opencode/EventV2Bridge — V2 事件桥接服务
+> 源文件: `opencode/packages/opencode/src/event-v2-bridge.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/event-v2-bridge.ts`
 
 ## 概述

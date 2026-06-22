@@ -1,4 +1,5 @@
 ﻿# @opencode/HttpApiWebSocketTracker — WebSocket 追踪服务
+> 源文件: `opencode/packages/opencode/src/server/routes/instance/httpapi/websocket-tracker.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/server/routes/instance/httpapi/websocket-tracker.ts`
 
 ## 概述

@@ -1,4 +1,5 @@
 ﻿# @opencode/Bus — 事件总线服务
+> 源文件: `opencode/packages/opencode/src/bus/index.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/bus/index.ts`
 
 ## 概述

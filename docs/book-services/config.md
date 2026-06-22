@@ -1,4 +1,5 @@
 ﻿# @opencode/Config — 配置服务
+> 源文件: `opencode/packages/opencode/src/config/config.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/config/config.ts`
 
 ## 概述

@@ -1,4 +1,5 @@
 ﻿# @opencode/AccountRepo — 账户持久化服务
+> 源文件: `opencode/packages/opencode/src/account/repo.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/account/repo.ts`
 
 ## 概述

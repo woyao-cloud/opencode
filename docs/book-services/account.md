@@ -1,4 +1,5 @@
 ﻿# @opencode/Account — 账户服务
+> 源文件: `opencode/packages/opencode/src/account/account.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/account/account.ts`
 
 ## 概述

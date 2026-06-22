@@ -1,4 +1,5 @@
 ﻿# EffectFlock — 文件锁服务
+> 源文件: `opencode/packages/core/src/util/effect-flock.ts`
 > 婧愭枃浠? `opencode/packages/core/src/util/effect-flock.ts`
 
 ## 概述

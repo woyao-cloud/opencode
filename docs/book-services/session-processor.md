@@ -1,4 +1,5 @@
 ﻿# @opencode/SessionProcessor — 会话流处理器
+> 源文件: `opencode/packages/opencode/src/session/processor.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/session/processor.ts`
 
 ## 概述

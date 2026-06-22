@@ -1,4 +1,5 @@
 ﻿# @opencode/SessionCompaction — 上下文压缩服务
+> 源文件: `opencode/packages/opencode/src/session/compaction.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/session/compaction.ts`
 
 ## 概述

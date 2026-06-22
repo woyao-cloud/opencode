@@ -1,4 +1,5 @@
 ﻿# @opencode/Storage — 持久化存储服务
+> 源文件: `opencode/packages/opencode/src/storage/storage.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/storage/storage.ts`
 
 ## 概述

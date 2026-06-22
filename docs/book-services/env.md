@@ -1,4 +1,5 @@
 ﻿# @opencode/Env — 环境变量服务
+> 源文件: `opencode/packages/opencode/src/env/index.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/env/index.ts`
 
 ## 概述

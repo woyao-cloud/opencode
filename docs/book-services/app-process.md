@@ -1,4 +1,5 @@
 ﻿# @opencode/AppProcess — 进程管理服务
+> 源文件: `opencode/packages/core/src/process.ts`
 > 婧愭枃浠? `opencode/packages/core/src/process.ts`
 
 ## 概述

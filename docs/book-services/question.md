@@ -1,4 +1,5 @@
 ﻿# @opencode/Question — 提问服务
+> 源文件: `opencode/packages/opencode/src/question/index.ts`
 > 婧愭枃浠? `opencode/packages/opencode/src/question/index.ts`
 
 ## 概述

@@ -1,4 +1,5 @@
 ﻿# @opencode/v2/AISDK — AI SDK 封装服务
+> 源文件: `opencode/packages/core/src/aisdk.ts`
 > 婧愭枃浠? `opencode/packages/core/src/aisdk.ts`
 
 ## 概述

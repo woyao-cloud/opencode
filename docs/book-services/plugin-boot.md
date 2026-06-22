@@ -1,4 +1,5 @@
 ﻿# @opencode/v2/PluginBoot — 插件启动服务
+> 源文件: `opencode/packages/core/src/plugin/boot.ts`
 > 婧愭枃浠? `opencode/packages/core/src/plugin/boot.ts`
 
 ## 概述
