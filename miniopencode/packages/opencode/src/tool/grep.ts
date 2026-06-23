@@ -1,20 +1,17 @@
 import { execSync } from "child_process"
 import type { Tool } from "./tool"
 import { truncateOutput } from "./truncate"
+import { toolSchema } from "./json-schema"
 
 export const GrepTool: Tool = {
   name: "grep",
   description: "Search file contents using regular expressions. Uses ripgrep (rg) if available, otherwise falls back to grep-like search.",
-  parameters: {
-    type: "object",
-    properties: {
-      pattern: { type: "string", description: "Regular expression pattern to search for" },
-      include: { type: "string", description: "File pattern to filter (e.g., '*.ts', '*.{ts,tsx}')" },
-      path: { type: "string", description: "Directory to search in (default: current directory)", default: "." },
-      maxResults: { type: "number", description: "Maximum number of results to return", default: 100 },
-    },
-    required: ["pattern"],
-  },
+  parameters: toolSchema({
+    pattern: { type: "string", description: "Regular expression pattern to search for" },
+    include: { type: "string", description: "File pattern to filter (e.g., '*.ts', '*.{ts,tsx}')" },
+    path: { type: "string", description: "Directory to search in (default: current directory)", default: "." },
+    maxResults: { type: "number", description: "Maximum number of results to return", default: 100 },
+  }),
   execute: async (args: Record<string, unknown>) => {
     const pattern = args.pattern as string
     const searchPath = (args.path as string) ?? process.cwd()

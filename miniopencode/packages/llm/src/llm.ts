@@ -36,6 +36,8 @@ export function generate(input: {
   system?: string
   messages: ReadonlyArray<Message>
   tools?: Record<string, any>
+  onToolCall?: (name: string, args: Record<string, unknown>) => void
+  onToolResult?: (name: string, result: string) => void
 }): Effect.Effect<{ text: string; usage?: { input: number; output: number } }, Error> {
   return Effect.gen(function* () {
     log.info("generate", { model: input.model.modelID, messages: input.messages.length })
@@ -48,6 +50,19 @@ export function generate(input: {
         if (input.tools) {
           opts.tools = input.tools
           opts.maxSteps = 20
+          opts.onStepFinish = (event: any) => {
+            if (event.toolCalls?.length && input.onToolCall) {
+              for (const tc of event.toolCalls) {
+                input.onToolCall(tc.toolName ?? tc.name, tc.args)
+              }
+            }
+            if (event.toolResults?.length && input.onToolResult) {
+              for (const tr of event.toolResults) {
+                const resultText = typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result, null, 2)
+                input.onToolResult(tr.toolName ?? tr.name, resultText)
+              }
+            }
+          }
         }
         return generateText(opts)
       },

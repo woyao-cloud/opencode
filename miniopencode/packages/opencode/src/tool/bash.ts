@@ -1,19 +1,16 @@
 import { execSync } from "child_process"
 import type { Tool } from "./tool"
 import { truncateOutput } from "./truncate"
+import { toolSchema } from "./json-schema"
 
 export const BashTool: Tool = {
   name: "bash",
   description: "Execute a shell command and return the output. Use this for running scripts, compiling, testing, and other shell operations.",
-  parameters: {
-    type: "object",
-    properties: {
-      command: { type: "string", description: "The shell command to execute" },
-      workdir: { type: "string", description: "Working directory for the command", default: "." },
-      timeout: { type: "number", description: "Timeout in milliseconds", default: 30000 },
-    },
-    required: ["command"],
-  },
+  parameters: toolSchema({
+    command: { type: "string", description: "The shell command to execute" },
+    workdir: { type: "string", description: "Working directory for the command", default: "." },
+    timeout: { type: "number", description: "Timeout in milliseconds", default: 30000 },
+  }),
   execute: async (args: Record<string, unknown>) => {
     const command = args.command as string
     const workdir = (args.workdir as string) ?? process.cwd()

@@ -38,19 +38,32 @@ export async function runCommand(opts: { prompt?: string; model?: string; baseUR
   const agentInfo = await AppRuntime.runPromise(AgentService.use((svc) => svc.defaultAgent())) as any
   const system = agentInfo?.system ?? "You are a helpful assistant."
 
+  const toolCallLog: Array<string> = []
+
   const result = await AppRuntime.runPromise(
     LLM.generate({
       model,
       system,
       messages: [{ role: "user" as const, content: opts.prompt }],
       tools: Object.keys(tools).length > 0 ? tools : undefined,
+      onToolCall: (name, args) => {
+        toolCallLog.push(`⚡ ${name}(${JSON.stringify(args)})`)
+      },
+      onToolResult: (name, result) => {
+        const truncated = result.length > 300 ? result.slice(0, 300) + "..." : result
+        toolCallLog.push(`  └─ ${name} -> ${truncated}`)
+      },
     }),
   ).catch((e: Error) => {
     console.error("Error:", e.message)
     process.exit(1)
   }) as any
 
-  console.log(result.text)
+  if (toolCallLog.length > 0) {
+    console.log("\n" + toolCallLog.join("\n"))
+  }
+
+  console.log("\n" + result.text)
 }
 
 async function runInteractive(opts: { model?: string; baseURL?: string; apiKey?: string; tools: any }) {
@@ -66,7 +79,10 @@ async function runInteractive(opts: { model?: string; baseURL?: string; apiKey?:
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   const messages: Array<{ role: string; content: any }> = []
 
-  console.log("Interactive mode. Type your messages (or 'exit' to quit).")
+  const toolCallLog: Array<string> = []
+  let responseStarted = false
+
+  console.log("\nInteractive mode. Type your messages (or 'exit' to quit).\n")
 
   const ask = () => {
     rl.question("> ", async (input) => {
@@ -76,6 +92,8 @@ async function runInteractive(opts: { model?: string; baseURL?: string; apiKey?:
       }
 
       messages.push({ role: "user", content: input })
+      toolCallLog.length = 0
+      responseStarted = false
 
       try {
         const result = await AppRuntime.runPromise(
@@ -84,8 +102,20 @@ async function runInteractive(opts: { model?: string; baseURL?: string; apiKey?:
             system,
             messages: messages as any,
             tools: Object.keys(opts.tools).length > 0 ? opts.tools : undefined,
+            onToolCall: (name, args) => {
+              toolCallLog.push(`⚡ ${name}(${JSON.stringify(args)})`)
+            },
+            onToolResult: (name, result) => {
+              const truncated = result.length > 300 ? result.slice(0, 300) + "..." : result
+              toolCallLog.push(`  └─ ${name} -> ${truncated}`)
+            },
           }),
         ) as any
+
+        // Show any tool calls that happened
+        if (toolCallLog.length > 0) {
+          console.log("\n" + toolCallLog.join("\n"))
+        }
 
         console.log("\n" + result.text + "\n")
         messages.push({ role: "assistant", content: result.text })

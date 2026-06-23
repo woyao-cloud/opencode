@@ -1,19 +1,16 @@
 import fs from "fs"
 import type { Tool } from "./tool"
 import { truncateOutput } from "./truncate"
+import { toolSchema } from "./json-schema"
 
 export const ReadTool: Tool = {
   name: "read",
   description: "Read a file from the filesystem. Returns file contents with line numbers.",
-  parameters: {
-    type: "object",
-    properties: {
-      path: { type: "string", description: "Path to the file to read" },
-      offset: { type: "number", description: "Line number to start from (1-indexed)", default: 1 },
-      limit: { type: "number", description: "Maximum number of lines to read", default: 2000 },
-    },
-    required: ["path"],
-  },
+  parameters: toolSchema({
+    path: { type: "string", description: "Path to the file to read" },
+    offset: { type: "number", description: "Line number to start from (1-indexed)", default: 1 },
+    limit: { type: "number", description: "Maximum number of lines to read", default: 2000 },
+  }),
   execute: async (args: Record<string, unknown>) => {
     const filePath = args.path as string
     const offset = (args.offset as number) ?? 1
