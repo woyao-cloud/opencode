@@ -3,7 +3,9 @@
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"],
+      "@miniopencode/core": ["../core/src/index.ts"],
       "@miniopencode/core/*": ["../core/src/*"],
+      "@miniopencode/llm": ["../llm/src/index.ts"],
       "@miniopencode/llm/*": ["../llm/src/*"]
     }
   },
