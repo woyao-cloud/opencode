@@ -7,7 +7,7 @@
  * 运行方式: bun run src/04-running-effects.ts
  */
 
-import { Effect } from "effect"
+import { Effect, Fiber } from "effect"
 
 // ============================================================
 // 准备: 定义几个用于演示的 Effect
@@ -114,15 +114,8 @@ const fiber = Effect.runFork(
 console.log("runFork 立即返回，不阻塞主线程")
 console.log("Fiber 对象:", fiber.constructor.name)
 
-// 等待 Fiber 完成以获取结果
-Effect.runPromise(Effect.tryPromise(() =>
-  new Promise<string>((resolve) =>
-    setTimeout(() => resolve("主线程继续执行"), 100)
-  )
-)).then((msg) => console.log(msg))
-
-// 等待 Fiber 完成
-Effect.runPromise(fiber.await).then((result) =>
+// 等待 Fiber 完成以获取结果（使用 Fiber.join 等待 Fiber）
+Effect.runPromise(Fiber.join(fiber)).then((result) =>
   console.log("Fiber 最终结果:", result)
 )
 
