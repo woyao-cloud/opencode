@@ -1,0 +1,14 @@
+{
+  "name": "ch04-context-layer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:tag": "bun run src/01-context-tag.ts",
+    "demo:layer": "bun run src/02-layer-basics.ts",
+    "demo:provide": "bun run src/03-provide-patterns.ts",
+    "demo:compose": "bun run src/04-layer-composition.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
