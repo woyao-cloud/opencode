@@ -1,0 +1,14 @@
+{
+  "name": "ch05-error-handling",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:catch": "bun run src/01-catch-patterns.ts",
+    "demo:cause": "bun run src/02-cause-types.ts",
+    "demo:recovery": "bun run src/03-recovery-strategies.ts",
+    "demo:vs-trycatch": "bun run src/04-vs-try-catch.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
