@@ -1,8 +1,8 @@
-/**
+﻿/**
  * 01-basic-struct.ts — Schema.Struct 基础
  *
- * 学习目标: 掌握 Schema.Struct 定义数据结构，理解基本类型、可选字段、
- *          数组/字典、数值约束，以及同步校验和错误信息
+ * 学习目标: 掌握 Schema.Struct 定义数据结构，理解 Schema 基本类型（String/Number/Boolean/Literal），
+ *          使用 optional/Array/Record 构建复合类型，通过 decodeSync/decodeUnknownSync 进行运行时校验
  * 前置章节: 第 2 章（Effect 类型入门）
  * 运行方式: bun run src/01-basic-struct.ts
  */
@@ -10,221 +10,270 @@
 import { Schema } from "effect"
 
 // ============================================================
-// 1. Schema.Struct — 定义结构化数据
+// 1. Schema.Struct — 定义对象结构
 // ============================================================
-// Schema.Struct 是 Schema 系统中最常用的构造器，用于定义对象结构。
-// 每个字段的值是一个 Schema，定义该字段的类型和校验规则。
+// Schema.Struct 是 Schema 中最常用的构造器，用于定义具有固定字段的对象类型。
+// 每个字段的值是一个 Schema 定义，指定该字段的类型和校验规则。
 
 const UserSchema = Schema.Struct({
-  name: Schema.String,       // 字符串字段
-  age: Schema.Number,        // 数字字段
-  email: Schema.String,      // 邮箱（后续可加格式校验）
+  name: Schema.String,       // 必须是 string
+  age: Schema.Number,        // 必须是 number
+  email: Schema.String,      // 必须是 string
 })
 
-// 从 Schema 提取 TypeScript 类型
-type User = Schema.Schema.Type<typeof UserSchema>
-// type User = { readonly name: string; readonly age: number; readonly email: string }
+// 从 Schema 推导 TypeScript 类型
+type User = typeof UserSchema.Type
+// 等价于: { readonly name: string; readonly age: number; readonly email: string }
 
 console.log("--- 1. Schema.Struct 基础 ---")
-console.log("UserSchema 定义了一个包含 name/age/email 三个字段的结构")
+console.log("UserSchema 定义了一个包含 name/age/email 三个字段的对象结构")
 
-// 校验合法数据
-const validUser = Schema.decodeUnknownSync(UserSchema)({
-  name: "Alice",
-  age: 30,
-  email: "alice@example.com",
+// decodeSync — 同步校验并返回类型安全的值
+const validUser = Schema.decodeSync(UserSchema)({
+  name: "张三",
+  age: 28,
+  email: "zhangsan@example.com",
 })
-console.log("合法数据校验通过:", validUser)
+console.log("校验通过:", validUser)
 
-// 校验非法数据 — 缺少必填字段
+// decodeUnknownSync — 从 unknown 类型校验（更安全的入口）
+const fromUnknown = Schema.decodeUnknownSync(UserSchema)({
+  name: "李四",
+  age: 35,
+  email: "lisi@example.com",
+})
+console.log("从 unknown 校验通过:", fromUnknown)
+
+// ============================================================
+// 2. 校验失败 — 运行时类型安全保障
+// ============================================================
+// 当输入数据不符合 Schema 定义时，decodeSync 会抛出 ParseError。
+// 这是 Schema 的核心价值：在运行时捕获类型不匹配，防止脏数据进入系统。
+
+console.log("\n--- 2. 校验失败示例 ---")
+
 try {
-  Schema.decodeUnknownSync(UserSchema)({
-    name: "Bob",
-    // age 和 email 缺失
+  Schema.decodeSync(UserSchema)({
+    name: "王五",
+    age: "不是数字",  // 应该是 number，但传入了 string
+    email: "wangwu@example.com",
   })
-} catch (err) {
-  console.log("非法数据校验失败 (缺少必填字段):")
-  console.log("  错误信息:", (err as Error).message)
+} catch (error) {
+  console.log("校验失败 (age 字段类型错误):")
+  console.log("  错误类型:", (error as any).constructor?.name ?? typeof error)
+  console.log("  错误信息:", (error as Error).message)
 }
 
-// ============================================================
-// 2. Schema.Literal — 字面量类型
-// ============================================================
-// Schema.Literal 约束值必须等于指定的字面量。常用于状态、角色等枚举值。
-
-const StatusSchema = Schema.Literal("active", "inactive", "suspended")
-type Status = Schema.Schema.Type<typeof StatusSchema>
-// type Status = "active" | "inactive" | "suspended"
-
-console.log("\n--- 2. Schema.Literal ---")
-console.log("合法值:", Schema.decodeUnknownSync(StatusSchema)("active"))
+// 缺少必填字段也会失败
 try {
-  Schema.decodeUnknownSync(StatusSchema)("deleted")
-} catch (err) {
-  console.log("非法值 'deleted' 被拒绝:", (err as Error).message)
+  Schema.decodeSync(UserSchema)({
+    name: "赵六",
+    // age 和 email 缺失
+  })
+} catch (error) {
+  console.log("\n校验失败 (缺少必填字段):")
+  console.log("  错误信息:", (error as Error).message)
 }
 
 // ============================================================
 // 3. Schema.optional — 可选字段
 // ============================================================
-// Schema.optional 将字段标记为可选，对应 TypeScript 的 ? 标记。
+// Schema.optional(Schema.String) 表示该字段可以存在（且为 string）或不存在。
 
 const ProfileSchema = Schema.Struct({
   username: Schema.String,
-  bio: Schema.optional(Schema.String),     // 可选字符串
-  age: Schema.optional(Schema.Number),     // 可选数字
+  bio: Schema.optional(Schema.String),     // 可选 string
+  website: Schema.optional(Schema.String), // 可选 string
 })
 
-console.log("\n--- 3. Schema.optional ---")
+type Profile = typeof ProfileSchema.Type
+
+console.log("\n--- 3. Schema.optional 可选字段 ---")
+
 // 提供所有字段
-const fullProfile = Schema.decodeUnknownSync(ProfileSchema)({
-  username: "alice42",
-  bio: "TypeScript 爱好者",
-  age: 28,
+const fullProfile = Schema.decodeSync(ProfileSchema)({
+  username: "developer42",
+  bio: "全栈工程师",
+  website: "https://dev42.dev",
 })
-console.log("完整数据:", fullProfile)
+console.log("完整 profile:", fullProfile)
 
 // 省略可选字段
-const minimalProfile = Schema.decodeUnknownSync(ProfileSchema)({
-  username: "bob99",
+const minimalProfile = Schema.decodeSync(ProfileSchema)({
+  username: "minimal_user",
 })
-console.log("最小数据 (省略可选字段):", minimalProfile)
+console.log("最小 profile (省略可选字段):", minimalProfile)
 
 // ============================================================
-// 4. Schema.Array — 数组类型
+// 4. Schema.Literal — 字面量类型
 // ============================================================
-// Schema.Array 定义元素类型一致的数组。
+// Schema.Literal 限制字段只能取指定的字面量值。
+// 常用于状态字段、枚举值、标签等。
 
-const TagsSchema = Schema.Array(Schema.String)
-const ScoresSchema = Schema.Array(Schema.Number)
+const OrderSchema = Schema.Struct({
+  id: Schema.Number,
+  status: Schema.Literal("pending", "processing", "shipped", "delivered"),
+  paymentMethod: Schema.Literal("credit_card", "alipay", "wechat_pay"),
+})
 
-console.log("\n--- 4. Schema.Array ---")
-const tags = Schema.decodeUnknownSync(TagsSchema)(["typescript", "effect-ts", "schema"])
-console.log("字符串数组:", tags)
+type Order = typeof OrderSchema.Type
+// status: "pending" | "processing" | "shipped" | "delivered"
 
-const scores = Schema.decodeUnknownSync(ScoresSchema)([95, 87, 92])
-console.log("数字数组:", scores)
+console.log("\n--- 4. Schema.Literal 字面量类型 ---")
+
+const validOrder = Schema.decodeSync(OrderSchema)({
+  id: 1001,
+  status: "processing",
+  paymentMethod: "alipay",
+})
+console.log("有效订单:", validOrder)
+
+// 非法状态值
+try {
+  Schema.decodeSync(OrderSchema)({
+    id: 1002,
+    status: "cancelled",  // 不在 Literal 允许的值中
+    paymentMethod: "credit_card",
+  })
+} catch (error) {
+  console.log("\n校验失败 (status 值不合法):")
+  console.log("  错误信息:", (error as Error).message)
+}
+
+// ============================================================
+// 5. Schema.Array — 数组类型
+// ============================================================
+// Schema.Array(Schema.Number) 表示元素为 number 的数组。
+
+const TeamSchema = Schema.Struct({
+  name: Schema.String,
+  members: Schema.Array(Schema.String),  // string[]
+  scores: Schema.Array(Schema.Number),   // number[]
+})
+
+type Team = typeof TeamSchema.Type
+
+console.log("\n--- 5. Schema.Array 数组类型 ---")
+
+const team = Schema.decodeSync(TeamSchema)({
+  name: "前端团队",
+  members: ["张三", "李四", "王五"],
+  scores: [95, 88, 92],
+})
+console.log("团队数据:", team)
 
 // 数组元素类型不匹配
 try {
-  Schema.decodeUnknownSync(ScoresSchema)([95, "high", 92])
-} catch (err) {
-  console.log("数组元素类型错误:", (err as Error).message)
-}
-
-// ============================================================
-// 5. Schema.Record — 字典/映射类型
-// ============================================================
-// Schema.Record(keySchema, valueSchema) 定义键值对集合。
-
-const ConfigSchema = Schema.Record(Schema.String, Schema.String)
-const CountMapSchema = Schema.Record(Schema.String, Schema.Number)
-
-console.log("\n--- 5. Schema.Record ---")
-const config = Schema.decodeUnknownSync(ConfigSchema)({
-  host: "localhost",
-  port: "8080",
-  env: "production",
-})
-console.log("字符串字典:", config)
-
-const counts = Schema.decodeUnknownSync(CountMapSchema)({
-  apples: 5,
-  oranges: 3,
-})
-console.log("数字字典:", counts)
-
-// ============================================================
-// 6. 数值约束 — Schema.check + Schema.isGreaterThan
-// ============================================================
-// Schema 不提供 Schema.positive() 这样的快捷方法。
-// 正确方式: 使用 Schema.check() 配合内置的过滤器函数。
-
-const PositiveNumberSchema = Schema.Number.pipe(
-  Schema.check(Schema.isGreaterThan(0))
-)
-
-const AgeSchema = Schema.Number.pipe(
-  Schema.check(Schema.isGreaterThanOrEqualTo(0))  // 年龄 >= 0
-)
-
-console.log("\n--- 6. 数值约束 ---")
-console.log("正数 42:", Schema.decodeUnknownSync(PositiveNumberSchema)(42))
-try {
-  Schema.decodeUnknownSync(PositiveNumberSchema)(-5)
-} catch (err) {
-  console.log("负数 -5 被拒绝:", (err as Error).message)
-}
-
-console.log("年龄 25:", Schema.decodeUnknownSync(AgeSchema)(25))
-try {
-  Schema.decodeUnknownSync(AgeSchema)(-1)
-} catch (err) {
-  console.log("年龄 -1 被拒绝:", (err as Error).message)
-}
-
-// ============================================================
-// 7. 组合使用 — 完整的用户模型
-// ============================================================
-// 将以上所有概念组合成一个完整的用户模型。
-
-const FullUserSchema = Schema.Struct({
-  id: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
-  name: Schema.String,
-  email: Schema.String,
-  status: Schema.Literal("active", "inactive", "suspended"),
-  tags: Schema.Array(Schema.String),
-  metadata: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-})
-
-type FullUser = Schema.Schema.Type<typeof FullUserSchema>
-
-console.log("\n--- 7. 完整用户模型 ---")
-
-const goodUser = Schema.decodeUnknownSync(FullUserSchema)({
-  id: 1,
-  name: "Alice",
-  email: "alice@example.com",
-  status: "active",
-  tags: ["admin", "premium"],
-  metadata: { department: "engineering", level: "senior" },
-})
-console.log("合法用户:", goodUser)
-
-// 多项校验失败
-try {
-  Schema.decodeUnknownSync(FullUserSchema)({
-    id: -1,                              // id 不满足 > 0
-    name: "Bob",
-    email: "bob@example.com",
-    status: "deleted",                   // 不在 Literal 范围内
-    tags: ["user", 123],                 // 数组元素类型错误
+  Schema.decodeSync(TeamSchema)({
+    name: "后端团队",
+    members: ["赵六", 123],  // 123 不是 string
+    scores: [80, 90],
   })
-} catch (err) {
-  console.log("多项校验失败:")
-  console.log("  错误信息:", (err as Error).message)
+} catch (error) {
+  console.log("\n校验失败 (数组元素类型错误):")
+  console.log("  错误信息:", (error as Error).message)
+}
+
+// ============================================================
+// 6. Schema.Record — 字典/映射类型
+// ============================================================
+// Schema.Record(keySchema, valueSchema) 表示键值对映射。
+// 常用于动态 key 的对象，如配置项、标签集合等。
+
+const ConfigSchema = Schema.Struct({
+  appName: Schema.String,
+  settings: Schema.Record(Schema.String, Schema.String),  // { [key: string]: string }
+  featureFlags: Schema.Record(Schema.String, Schema.Boolean), // { [key: string]: boolean }
+})
+
+type Config = typeof ConfigSchema.Type
+
+console.log("\n--- 6. Schema.Record 字典类型 ---")
+
+const config = Schema.decodeSync(ConfigSchema)({
+  appName: "MyApp",
+  settings: {
+    theme: "dark",
+    language: "zh-CN",
+    timezone: "Asia/Shanghai",
+  },
+  featureFlags: {
+    newDashboard: true,
+    betaSearch: false,
+  },
+})
+console.log("配置数据:", config)
+
+// ============================================================
+// 7. 数值约束 — Schema.GreaterThan / Schema.check
+// ============================================================
+// Schema 提供数值约束来限制数字范围。
+// 注意: Schema.positive() 在 Effect 4.0.0-beta.65 中不存在，
+// 使用 Schema.GreaterThan(0) 或 Schema.check(Schema.isGreaterThan(0)) 代替。
+
+const ProductSchema = Schema.Struct({
+  name: Schema.String,
+  price: Schema.compose(Schema.Number, Schema.GreaterThan(0)),  // 价格必须 > 0
+  stock: Schema.compose(Schema.Number, Schema.between(0, 99999)), // 库存 0-99999
+})
+
+type Product = typeof ProductSchema.Type
+
+console.log("\n--- 7. 数值约束 ---")
+
+const validProduct = Schema.decodeSync(ProductSchema)({
+  name: "机械键盘",
+  price: 399,
+  stock: 150,
+})
+console.log("有效商品:", validProduct)
+
+// 价格 <= 0
+try {
+  Schema.decodeSync(ProductSchema)({
+    name: "无效商品",
+    price: 0,   // 不满足 GreaterThan(0)
+    stock: 50,
+  })
+} catch (error) {
+  console.log("\n校验失败 (price 不满足 GreaterThan(0)):")
+  console.log("  错误信息:", (error as Error).message)
+}
+
+// 库存超出范围
+try {
+  Schema.decodeSync(ProductSchema)({
+    name: "超量商品",
+    price: 100,
+    stock: 100000,  // 超出 between(0, 99999) 范围
+  })
+} catch (error) {
+  console.log("\n校验失败 (stock 超出范围):")
+  console.log("  错误信息:", (error as Error).message)
 }
 
 // ============================================================
 // 8. 总结
 // ============================================================
 console.log("\n--- 8. 总结 ---")
-console.log("┌──────────────────────┬─────────────────────────────────┐")
-console.log("│ Schema 构造器        │ 用途                            │")
-console.log("├──────────────────────┼─────────────────────────────────┤")
-console.log("│ Schema.Struct        │ 定义对象结构（字段+类型）       │")
-console.log("│ Schema.String        │ 字符串类型                      │")
-console.log("│ Schema.Number        │ 数字类型                        │")
-console.log("│ Schema.Boolean       │ 布尔类型                        │")
-console.log("│ Schema.Literal       │ 字面量/枚举值                   │")
-console.log("│ Schema.optional      │ 可选字段                        │")
-console.log("│ Schema.Array         │ 数组类型                        │")
-console.log("│ Schema.Record        │ 字典/映射类型                   │")
-console.log("│ Schema.check         │ 附加校验约束                    │")
-console.log("│ Schema.isGreaterThan │ 数值下限过滤器                  │")
-console.log("└──────────────────────┴─────────────────────────────────┘")
+console.log("┌──────────────────────────┬──────────────────────────────────────┐")
+console.log("│ Schema API               │ 用途                                 │")
+console.log("├──────────────────────────┼──────────────────────────────────────┤")
+console.log("│ Schema.Struct            │ 定义固定字段的对象结构               │")
+console.log("│ Schema.String            │ string 类型校验                      │")
+console.log("│ Schema.Number            │ number 类型校验                      │")
+console.log("│ Schema.Boolean           │ boolean 类型校验                     │")
+console.log("│ Schema.Literal           │ 字面量联合类型                       │")
+console.log("│ Schema.optional          │ 可选字段                             │")
+console.log("│ Schema.Array             │ 数组类型                             │")
+console.log("│ Schema.Record            │ 字典/映射类型                         │")
+console.log("│ Schema.GreaterThan       │ 数值大于约束                         │")
+console.log("│ Schema.between           │ 数值范围约束                         │")
+console.log("│ Schema.decodeSync        │ 同步校验（已知类型）                 │")
+console.log("│ Schema.decodeUnknownSync │ 同步校验（unknown 类型）             │")
+console.log("└──────────────────────────┴──────────────────────────────────────┘")
 console.log("\n关键理解:")
-console.log("  - Schema 定义的是运行时校验规则，TypeScript 类型在编译后消失")
-console.log("  - Schema.decodeUnknownSync 从 unknown 解码并校验")
-console.log("  - Schema.decodeSync 从已知编码类型解码")
-console.log("  - 校验失败时抛出 ParseError，包含详细的错误路径和原因")
+console.log("  - TypeScript 类型在编译后消失，Schema 在运行时提供类型安全保障")
+console.log("  - decodeSync 适用于已知输入类型，decodeUnknownSync 适用于外部数据")
+console.log("  - Schema.optional 让字段可选，未提供时值为 undefined")
+console.log("  - 数值约束通过 Schema.compose 组合基础类型和约束条件")

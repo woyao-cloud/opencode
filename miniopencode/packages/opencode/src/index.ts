@@ -27,13 +27,15 @@ yargs(args)
         .option("prompt", { type: "string", alias: "p", describe: "prompt to send" })
         .option("model", { type: "string", describe: "model id" })
         .option("base-url", { type: "string", describe: "base URL for OpenAI-compatible" })
-        .option("api-key", { type: "string", describe: "API key" }),
+        .option("api-key", { type: "string", describe: "API key" })
+        .option("interactive", { type: "boolean", alias: "i", describe: "interactive REPL mode" }),
     (argv) => {
       runCommand({
         prompt: argv.prompt as string | undefined,
         model: argv.model as string | undefined,
         baseURL: argv["base-url"] as string | undefined,
         apiKey: argv["api-key"] as string | undefined,
+        interactive: argv.interactive as boolean | undefined,
       }).catch((e) => {
         console.error("Error:", e instanceof Error ? e.message : String(e))
         process.exit(1)
