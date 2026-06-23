@@ -7,7 +7,7 @@
  * 运行方式: bun run src/04-running-effects.ts
  */
 
-import { Effect, Fiber } from "effect"
+import { Effect, Exit, Fiber } from "effect"
 
 // ============================================================
 // 准备: 定义几个用于演示的 Effect
@@ -141,12 +141,10 @@ Effect.runPromiseExit(riskyProgram).then((exit) =>
 
 // 使用 Exit.match 分别处理成功和失败
 Effect.runPromiseExit(riskyProgram).then((exit) => {
-  const message = Effect.runSync(Effect.succeed(
-    // Exit.match 安全地解构 Exit
-    exit._tag === "Success"
-      ? `成功! 值: ${exit.value}`
-      : `失败! 错误: ${(exit.cause as any).failure?.message ?? exit.cause.toString()}`
-  ))
+  const message = Exit.match(exit, {
+    onSuccess: (value) => `成功! 值: ${value}`,
+    onFailure: (cause) => `失败! 错误: ${cause.failure?.message ?? cause.toString()}`
+  })
   console.log("Exit.match 处理:", message)
 })
 
@@ -159,7 +157,7 @@ console.log("│ 运行方式           │ 返回类型  │ 错误处理     �
 console.log("├────────────────────┼───────────┼──────────────┼──────────────────────────┤")
 console.log("│ runSync            │ A         │ 直接抛出     │ 纯同步、脚本、测试       │")
 console.log("│ runPromise         │ Promise<A>│ Promise reject│ 与 Promise 互操作       │")
-console.log("│ runFork            │ Fiber     │ Fiber.await  │ 并发、可取消             │")
+console.log("│ runFork            │ Fiber     │ Fiber.join   │ 并发、可取消             │")
 console.log("│ runPromiseExit     │ Exit<A,E> │ 永不抛出     │ 精确错误处理             │")
 console.log("└────────────────────┴───────────┴──────────────┴──────────────────────────┘")
 

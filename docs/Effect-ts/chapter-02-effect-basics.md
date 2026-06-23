@@ -76,11 +76,14 @@ const eff = Effect.sync(() => 1 + 2 + 3)
 #### Effect.try — 同步计算（自动捕获异常）
 
 ```typescript
-const eff = Effect.try(() => JSON.parse('{"name": "Alice"}'))
+const eff = Effect.try({
+  try: () => JSON.parse('{"name": "Alice"}'),
+  catch: (err) => (err as Error)
+})
 // 类型: Effect<never, Error, A>
 ```
 
-`try` 与 `sync` 的区别在于它会**自动捕获**函数中抛出的异常，将其转为 `Effect.fail`。E 固定为 `Error` 类型（因为 JavaScript 异常总是 `Error` 或其子类）。适用于 `JSON.parse`、文件读取等可能失败的操作。
+`try` 与 `sync` 的区别在于它会**自动捕获**函数中抛出的异常，将其转为 `Effect.fail`。E 固定为 `Error` 类型（因为 JavaScript 异常总是 `Error` 或其子类）。适用于 `JSON.parse`、文件读取等可能失败的操作。注意 `catch` 是必填参数 — 不存在不带 `catch` 的简单形式。
 
 `try` 也支持自定义错误转换：
 
