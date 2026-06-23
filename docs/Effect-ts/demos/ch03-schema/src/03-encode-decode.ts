@@ -1,206 +1,195 @@
 ﻿/**
  * 03-encode-decode.ts — 序列化与反序列化
  *
- * 学习目标: 掌握 Schema 的编解码操作，理解 Type（解码后类型）与 Encoded（编码类型）
- *          的区别，学会 JSON 往返和自定义 transform
- * 前置章节: 第 2 章（Effect 类型入门）
- * 运行方式: bun run src/03-encode-decode.ts
+ * 演示 Schema.encode/Schema.decode（Effect 版本）、同步版本、JSON 往返、
+ * 以及自定义数据清洗。
+ * 运行: bun run src/03-encode-decode.ts
  */
 
-import { Schema } from "effect"
+import { Schema, Effect, pipe } from "effect"
 
 // ============================================================
-// 1. Type vs Encoded — 两个关键类型概念
+// 1. Schema 编解码基础
 // ============================================================
-// 每个 Schema 有两个关联类型:
-//   - Type (解码后类型): 校验通过后的"干净"类型，用于业务逻辑
-//   - Encoded (编码类型): 原始输入/输出类型，用于 JSON 序列化
-//
-// 对于简单 Schema (如 Schema.String)，Type === Encoded。
-// 对于带 transform 的 Schema，两者可能不同。
 
-const SimpleSchema = Schema.Struct({
+console.log("=== 1. 编解码基础 ===")
+
+const UserSchema = Schema.Struct({
   name: Schema.String,
   age: Schema.Number,
+  email: Schema.String,
 })
 
-// Type 和 Encoded 相同（没有 transform）
-type SimpleType = Schema.Schema.Type<typeof SimpleSchema>
-type SimpleEncoded = Schema.Codec.Encoded<typeof SimpleSchema>
+type User = typeof UserSchema.Type
 
-console.log("--- 1. Type vs Encoded ---")
-console.log("对于简单 Schema (无 transform):")
-console.log("  Type === Encoded (两者相同)")
-
-// ============================================================
-// 2. Schema.decodeUnknownSync — 从 unknown 解码
-// ============================================================
-// decodeUnknownSync 接受 unknown 输入，校验并返回 Type。
-// 这是最常用的解码方式，因为外部数据（API 响应、用户输入）通常是 unknown。
-
-const rawData: unknown = JSON.parse('{"name":"Alice","age":30}')
-
-const decoded = Schema.decodeUnknownSync(SimpleSchema)(rawData)
-console.log("\n--- 2. Schema.decodeUnknownSync ---")
-console.log("原始数据 (unknown):", rawData)
-console.log("解码后 (Type):", decoded)
-console.log("类型安全访问:", decoded.name.toUpperCase(), decoded.age + 1)
-
-// ============================================================
-// 3. Schema.encodeSync — 编码为 Encoded 类型
-// ============================================================
-// encodeSync 将 Type 转换为 Encoded 类型。
-// 对于简单 Schema，encodeSync 基本是"原样返回"。
-
-const encoded = Schema.encodeSync(SimpleSchema)(decoded)
-console.log("\n--- 3. Schema.encodeSync ---")
-console.log("编码后 (Encoded):", encoded)
-console.log("编码后 JSON:", JSON.stringify(encoded))
-
-// ============================================================
-// 4. JSON 往返 — 完整的序列化/反序列化流程
-// ============================================================
-// 典型流程: JSON 字符串 → unknown → decode → Type → encode → Encoded → JSON 字符串
-
-const ProductSchema = Schema.Struct({
-  id: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
-  name: Schema.String,
-  price: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
-  tags: Schema.Array(Schema.String),
-  inStock: Schema.Boolean,
+// decodeUnknownSync — 从 unknown 解码（最常用）
+const user: User = Schema.decodeUnknownSync(UserSchema)({
+  name: "张三",
+  age: 28,
+  email: "zhangsan@example.com",
 })
+console.log("decodeUnknownSync:", user)
 
-console.log("\n--- 4. JSON 往返 ---")
-
-// 模拟从 API 收到的 JSON
-const apiResponse = `{
-  "id": 101,
-  "name": "Effect-TS 实战指南",
-  "price": 49.9,
-  "tags": ["typescript", "functional", "effect"],
-  "inStock": true
-}`
-
-console.log("步骤 1: JSON 字符串")
-console.log("  ", apiResponse.trim())
-
-// 步骤 2: JSON.parse → unknown
-const raw: unknown = JSON.parse(apiResponse)
-console.log("步骤 2: JSON.parse → unknown")
-
-// 步骤 3: decodeUnknownSync → Type (校验 + 类型安全)
-const product = Schema.decodeUnknownSync(ProductSchema)(raw)
-console.log("步骤 3: decodeUnknownSync → Type (校验通过)")
-console.log("  product.name:", product.name)
-console.log("  product.price:", product.price)
-console.log("  product.tags:", product.tags)
-
-// 步骤 4: encodeSync → Encoded
-const backToEncoded = Schema.encodeSync(ProductSchema)(product)
-console.log("步骤 4: encodeSync → Encoded")
-
-// 步骤 5: JSON.stringify → JSON 字符串
-const backToJson = JSON.stringify(backToEncoded, null, 2)
-console.log("步骤 5: JSON.stringify → JSON 字符串")
-console.log(backToJson)
-
-// 验证往返一致性
-const reDecoded = Schema.decodeUnknownSync(ProductSchema)(JSON.parse(backToJson))
-console.log("往返验证: 重新解码后的 name =", reDecoded.name)
+// encodeSync — 将类型安全对象编码回原始格式
+const encoded = Schema.encodeSync(UserSchema)(user)
+console.log("encodeSync:", encoded)
+console.log("往返一致:", JSON.stringify(user) === JSON.stringify(encoded))
 
 // ============================================================
-// 5. 自定义 transform — 数据清洗与类型转换
+// 2. Schema.decode / Schema.encode — Effect 版本
 // ============================================================
-// Effect-TS 提供内置的 transform Schema（如 NumberFromString、DateFromString），
-// 也可以使用 Schema.decodeTo + SchemaGetter.transform 创建自定义转换。
 
-import { SchemaGetter } from "effect"
+console.log("\n=== 2. Effect 版本编解码 ===")
 
-// 5.1 内置 transform: Schema.NumberFromString
-// 将字符串解码为数字，将数字编码为字符串
-console.log("\n--- 5. 自定义 transform ---")
-console.log("5.1 内置 NumberFromString:")
-
-const num1 = Schema.decodeUnknownSync(Schema.NumberFromString)("42")
-console.log("  解码 '42' →", num1, `(type: ${typeof num1})`)
-
-const str1 = Schema.encodeSync(Schema.NumberFromString)(num1)
-console.log("  编码 42 →", str1, `(type: ${typeof str1})`)
-
-// 非法输入
-try {
-  Schema.decodeUnknownSync(Schema.NumberFromString)("not-a-number")
-} catch (err) {
-  console.log("  非法输入 'not-a-number':", (err as Error).message)
-}
-
-// 5.2 内置 transform: Schema.DateFromString
-// 将 ISO 8601 字符串解码为 Date，将 Date 编码为 ISO 8601 字符串
-console.log("\n5.2 内置 DateFromString:")
-
-const date = Schema.decodeUnknownSync(Schema.DateFromString)("2024-01-15T08:30:00Z")
-console.log("  解码 '2024-01-15T08:30:00Z' →", date)
-console.log("  date.getFullYear():", date.getFullYear())
-
-const dateStr = Schema.encodeSync(Schema.DateFromString)(date)
-console.log("  编码 Date →", dateStr)
-
-// 5.3 自定义 transform: Schema.decodeTo + SchemaGetter.transform
-// 创建自定义的类型转换 — 例如: 清理字符串空白
-console.log("\n5.3 自定义 transform (decodeTo):")
-
-const TrimmedString = Schema.String.pipe(
-  Schema.decodeTo(Schema.String, {
-    decode: SchemaGetter.transform((s: string) => s.trim()),
-    encode: SchemaGetter.transform((s: string) => s.trim()),
-  })
+// decode — 返回 Effect，可用于 Effect 管道中
+const decodeProgram = pipe(
+  Schema.decode(UserSchema)({
+    name: "李四",
+    age: 30,
+    email: "lisi@example.com",
+  }),
+  Effect.map((u) => `用户: ${u.name}, ${u.age}岁`),
 )
 
-const trimmed = Schema.decodeUnknownSync(TrimmedString)("  hello world  ")
-console.log("  解码 '  hello world  ' →", `'${trimmed}'`)
+const decodeResult = Effect.runSync(decodeProgram)
+console.log("decode (Effect):", decodeResult)
 
-const reEncoded = Schema.encodeSync(TrimmedString)(trimmed)
-console.log("  编码 'hello world' →", `'${reEncoded}'`)
+// encode — Effect 版本的编码
+const encodeProgram = pipe(
+  Schema.encode(UserSchema)({ name: "王五", age: 22, email: "ww@example.com" }),
+  Effect.map((encoded) => JSON.stringify(encoded)),
+)
+
+const encodeResult = Effect.runSync(encodeProgram)
+console.log("encode (Effect):", encodeResult)
 
 // ============================================================
-// 6. Schema.decodeUnknownEffect — Effect 版本（异步解码）
+// 3. decodeUnknown — 从 unknown 类型解码（Effect 版本）
 // ============================================================
-// decodeUnknownEffect 返回 Effect，支持异步校验场景。
-// 这里演示同步使用，但 API 设计支持异步。
 
-import { Effect } from "effect"
+console.log("\n=== 3. decodeUnknown — unknown 解码 ===")
 
-console.log("\n--- 6. Schema.decodeUnknownEffect (Effect 版本) ---")
+// decodeUnknownSync 是同步版本，decodeUnknown 返回 Effect
+const unknownData: unknown = JSON.parse('{"name":"赵六","age":35,"email":"zl@example.com"}')
 
-const program = Effect.gen(function* () {
-  const raw: unknown = JSON.parse('{"name":"Alice","age":30}')
-  const user = yield* Schema.decodeUnknownEffect(SimpleSchema)(raw)
-  return user
+const unknownDecode = pipe(
+  Schema.decodeUnknown(UserSchema)(unknownData),
+  Effect.map((u) => u.name),
+)
+
+console.log("decodeUnknown:", Effect.runSync(unknownDecode))
+
+// ============================================================
+// 4. JSON 序列化往返
+// ============================================================
+
+console.log("\n=== 4. JSON 序列化往返 ===")
+
+// 完整往返流程：JSON 字符串 → decode → 类型安全对象 → encode → JSON 字符串
+const jsonString = '{"name":"孙七","age":40,"email":"sq@example.com"}'
+console.log("输入 JSON:", jsonString)
+
+const roundTrip = pipe(
+  // 步骤 1: JSON 解析
+  Effect.sync(() => JSON.parse(jsonString)),
+  // 步骤 2: Schema 校验并解码
+  Effect.flatMap((parsed: unknown) => Schema.decodeUnknown(UserSchema)(parsed)),
+  // 步骤 3: 在类型安全的环境下操作数据
+  Effect.map((validUser) => ({
+    ...validUser,
+    name: validUser.name.toUpperCase(), // 安全：编译器知道 name 是 string
+    age: validUser.age + 1,
+  })),
+  // 步骤 4: 编码回普通对象
+  Effect.flatMap((modified) => Schema.encode(UserSchema)(modified)),
+  // 步骤 5: 序列化为 JSON
+  Effect.map((obj) => JSON.stringify(obj)),
+)
+
+const outputJson = Effect.runSync(roundTrip)
+console.log("输出 JSON:", outputJson)
+
+// ============================================================
+// 5. Schema.decodeOption / decodeUnknownOption — 不抛异常的校验
+// ============================================================
+
+console.log("\n=== 5. 不抛异常的校验 ===")
+
+import { Option } from "effect"
+
+// decodeUnknownOption 返回 Option，合法数据 → Some，非法数据 → None
+const result1 = Schema.decodeUnknownOption(UserSchema)({
+  name: "测试",
+  age: 20,
+  email: "test@test.com",
+})
+console.log("合法数据:", result1)
+
+const result2 = Schema.decodeUnknownOption(UserSchema)({
+  name: "测试",
+  // 缺少 age 和 email
+})
+console.log("非法数据:", result2)
+
+if (Option.isSome(result1)) {
+  console.log("  Some 值:", result1.value.name)
+}
+if (Option.isNone(result2)) {
+  console.log("  None — 数据校验失败但不抛异常")
+}
+
+// ============================================================
+// 6. 自定义数据清洗 — 使用 Schema 变换
+// ============================================================
+
+console.log("\n=== 6. 自定义数据清洗 ===")
+
+// 场景：API 返回的字符串数据需要清洗（trim、默认值等）
+const TrimmedString = Schema.String.pipe(
+  // 使用 Schema.check 做变换前校验
+  Schema.check(Schema.isMinLength(1)),
+)
+
+// 使用 Schema.declare 创建自定义 Schema（含编解码逻辑）
+const NormalizedUserSchema = Schema.Struct({
+  name: Schema.String,
+  email: Schema.String,
 })
 
-Effect.runPromise(program).then((user) => {
-  console.log("Effect 版本解码结果:", user)
-})
+// 自定义清洗函数：在 Schema 之外处理数据转换
+function cleanInput(raw: unknown): unknown {
+  if (typeof raw === "object" && raw !== null) {
+    const obj = raw as Record<string, unknown>
+    return {
+      ...obj,
+      name: typeof obj.name === "string" ? obj.name.trim() : obj.name,
+      email: typeof obj.email === "string" ? obj.email.toLowerCase().trim() : obj.email,
+    }
+  }
+  return raw
+}
+
+// 清洗流程：先清洗，再校验
+const dirtyData = {
+  name: "  张三  ",
+  age: 28,
+  email: "  ZhangSan@Example.COM  ",
+}
+
+const cleaned = cleanInput(dirtyData)
+const normalized = Schema.decodeUnknownSync(NormalizedUserSchema)(cleaned)
+console.log("清洗前:", dirtyData)
+console.log("清洗后:", normalized)
 
 // ============================================================
-// 7. 总结
+// 7. encodeUnknownSync — 将任意值编码
 // ============================================================
-console.log("\n--- 7. 总结 ---")
-console.log("┌──────────────────────────┬─────────────────────────────────┐")
-console.log("│ API                      │ 用途                            │")
-console.log("├──────────────────────────┼─────────────────────────────────┤")
-console.log("│ Schema.decodeUnknownSync │ unknown → Type (同步)          │")
-console.log("│ Schema.decodeSync        │ Encoded → Type (同步)          │")
-console.log("│ Schema.encodeSync        │ Type → Encoded (同步)          │")
-console.log("│ Schema.decodeUnknownEffect│ unknown → Type (Effect/异步)   │")
-console.log("│ Schema.encodeUnknownEffect│ Type → Encoded (Effect/异步)  │")
-console.log("│ Schema.decodeTo          │ 类型转换 (A ↔ B)              │")
-console.log("│ Schema.Schema.Type       │ 提取 TypeScript 类型          │")
-console.log("│ Schema.Codec.Encoded     │ 提取编码类型                   │")
-console.log("└──────────────────────────┴─────────────────────────────────┘")
-console.log("\n关键理解:")
-console.log("  - Type 是业务逻辑使用的类型，Encoded 是序列化/传输类型")
-console.log("  - 简单 Schema 的 Type === Encoded")
-console.log("  - 带 transform 的 Schema 的 Type !== Encoded")
-console.log("  - JSON 往返: JSON → unknown → decode → Type → encode → Encoded → JSON")
-console.log("  - Schema.decodeTo + SchemaGetter.transform 实现自定义类型转换")
+
+console.log("\n=== 7. encodeUnknownSync ===")
+
+// encodeUnknownSync 接收 unknown 输入，先解码再编码
+const rawInput = { name: "编码测试", age: 25, email: "encode@test.com" }
+const encoded2 = Schema.encodeUnknownSync(UserSchema)(rawInput)
+console.log("encodeUnknownSync:", encoded2)
+
+console.log("\n✅ 03-encode-decode.ts 运行完成")

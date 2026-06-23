@@ -1,232 +1,247 @@
-/**
+﻿/**
  * 04-type-inference.ts — Schema 与 TypeScript 类型双向推导
  *
- * 学习目标: 掌握 Schema → TypeScript 类型的提取方式，理解 Type 与 Encoded 的区别，
- *          了解 Standard Schema 兼容性，建立"Schema 作为单一真相源"的理念
- * 前置章节: 第 2 章（Effect 类型入门）
- * 运行方式: bun run src/04-type-inference.ts
+ * 演示 typeof schema.Type（Schema → TS 类型）、typeof schema.Encoded（编码类型）、
+ * Schema.toStandardSchemaV1（Standard Schema 规范兼容）、以及 Schema 作为"单一真相源"。
+ * 运行: bun run src/04-type-inference.ts
  */
 
 import { Schema } from "effect"
 
 // ============================================================
-// 1. Schema.Schema.Type — Schema → TypeScript 类型
+// 1. typeof schema.Type — Schema → TypeScript 类型
 // ============================================================
-// Schema.Schema.Type<typeof schema> 从 Schema 提取解码后的 TypeScript 类型。
-// 这是"单一真相源"的核心: 类型定义和校验规则在同一处维护。
 
-const BookSchema = Schema.Struct({
-  title: Schema.String,
-  author: Schema.String,
-  year: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
-  genres: Schema.Array(Schema.String),
-  rating: Schema.optional(Schema.Number.pipe(
-    Schema.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(5))
-  )),
+console.log("=== 1. Schema → TypeScript 类型推导 ===")
+
+const UserSchema = Schema.Struct({
+  name: Schema.String,
+  age: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
+  email: Schema.String,
+  role: Schema.Literal("admin", "user", "moderator"),
+  tags: Schema.Array(Schema.String),
+  metadata: Schema.optional(
+    Schema.Record(Schema.String, Schema.Unknown)
+  ),
 })
 
-// 从 Schema 提取 TypeScript 类型 — 不需要手动写 interface！
-type Book = Schema.Schema.Type<typeof BookSchema>
-// type Book = {
-//   readonly title: string
-//   readonly author: string
-//   readonly year: number
-//   readonly genres: readonly string[]
-//   readonly rating?: number
+// typeof schema.Type — 从 Schema 推导 TypeScript 类型
+type User = typeof UserSchema.Type
+// User 等价于:
+// {
+//   readonly name: string
+//   readonly age: number
+//   readonly email: string
+//   readonly role: "admin" | "user" | "moderator"
+//   readonly tags: readonly string[]
+//   readonly metadata?: { readonly [x: string]: unknown }
 // }
 
-console.log("--- 1. Schema.Schema.Type ---")
-console.log("BookSchema 定义了完整的 Book 类型:")
-console.log("  - title: string")
-console.log("  - author: string")
-console.log("  - year: number (> 0)")
-console.log("  - genres: string[]")
-console.log("  - rating?: number (0-5)")
-console.log("\n无需手动编写 interface Book { ... }")
-console.log("类型定义 + 校验规则 = 同一处维护 = 单一真相源")
-
-// 使用提取的类型
-function formatBook(book: Book): string {
-  return `《${book.title}》- ${book.author} (${book.year})`
+// TypeScript 会在编译时检查类型
+function formatUser(user: User): string {
+  // 编译器知道 user.role 是 "admin" | "user" | "moderator"
+  const roleLabel = { admin: "管理员", user: "用户", moderator: "版主" }[user.role]
+  return `${user.name} (${roleLabel}, ${user.age}岁)`
 }
 
-const validBook = Schema.decodeUnknownSync(BookSchema)({
-  title: "Effect-TS 实战",
-  author: "OpenCode 团队",
-  year: 2024,
-  genres: ["typescript", "functional"],
-  rating: 4.5,
+// 运行时校验确保数据符合类型
+const user = Schema.decodeUnknownSync(UserSchema)({
+  name: "张三",
+  age: 28,
+  email: "zhangsan@example.com",
+  role: "admin",
+  tags: ["frontend", "react"],
 })
-console.log("\n格式化输出:", formatBook(validBook))
+console.log(formatUser(user))
 
 // ============================================================
-// 2. Schema.Codec.Encoded — Schema → 编码类型
+// 2. typeof schema.Encoded — 编码类型
 // ============================================================
-// Schema.Codec.Encoded<typeof schema> 提取编码类型（原始输入类型）。
-// 对于带 transform 的 Schema，Encoded 与 Type 不同。
 
-// 2.1 简单 Schema: Type === Encoded
-const SimpleSchema = Schema.Struct({
+console.log("\n=== 2. typeof schema.Encoded — 编码类型 ===")
+
+// 当 Schema 包含变换（如 NumberFromString）时，Type 和 Encoded 不同
+const AgeFromString = Schema.NumberFromString
+
+// Type 是变换后的类型（number）
+type Age = typeof AgeFromString.Type  // number
+
+// Encoded 是变换前的类型（string）
+type AgeEncoded = typeof AgeFromString.Encoded  // string
+
+console.log("NumberFromString.Type 是 number 类型")
+console.log("NumberFromString.Encoded 是 string 类型")
+
+// 演示 Type vs Encoded 的实际差异
+const ProductSchema = Schema.Struct({
   name: Schema.String,
-  count: Schema.Number,
+  price: Schema.NumberFromString, // 编码时是 string，解码后是 number
 })
-type SimpleType = Schema.Schema.Type<typeof SimpleSchema>
-type SimpleEncoded = Schema.Codec.Encoded<typeof SimpleSchema>
-// SimpleType === SimpleEncoded (两者相同)
 
-console.log("\n--- 2. Schema.Codec.Encoded ---")
-console.log("简单 Schema (无 transform):")
-console.log("  Type === Encoded")
+type Product = typeof ProductSchema.Type
+// { readonly name: string; readonly price: number }
 
-// 2.2 带 transform 的 Schema: Type !== Encoded
-// 使用内置的 Schema.NumberFromString — Type=number, Encoded=string
+type ProductEncoded = typeof ProductSchema.Encoded
+// { readonly name: string; readonly price: string }
 
-type NFSType = Schema.Schema.Type<typeof Schema.NumberFromString>    // number
-type NFSEncoded = Schema.Codec.Encoded<typeof Schema.NumberFromString> // string
+// 解码：string → number
+const product = Schema.decodeUnknownSync(ProductSchema)({
+  name: "Effect-TS 指南",
+  price: "99.90", // 注意：这是 string！
+})
+console.log("解码后 price 类型:", typeof product.price, product.price)
 
-console.log("\n带 transform 的 Schema (NumberFromString):")
-console.log("  Type (解码后): number — 业务逻辑中使用的类型")
-console.log("  Encoded (编码): string — JSON/API 传输的类型")
-
-// 验证
-const nfsValue = Schema.decodeUnknownSync(Schema.NumberFromString)("42")
-console.log("  解码 '42' →", nfsValue, `(typeof: ${typeof nfsValue})`)
-const nfsEncoded = Schema.encodeSync(Schema.NumberFromString)(nfsValue)
-console.log("  编码 42 →", nfsEncoded, `(typeof: ${typeof nfsEncoded})`)
+// 编码：number → string
+const encoded = Schema.encodeSync(ProductSchema)(product)
+console.log("编码后 price 类型:", typeof encoded.price, encoded.price)
 
 // ============================================================
 // 3. Schema.toStandardSchemaV1 — Standard Schema 兼容
 // ============================================================
-// Effect-TS Schema 支持 Standard Schema v1 规范。
-// toStandardSchemaV1 将 Effect Schema 转换为标准接口，
-// 使其可被其他支持该规范的库使用。
 
-console.log("\n--- 3. Schema.toStandardSchemaV1 ---")
+console.log("\n=== 3. Standard Schema V1 兼容 ===")
 
-const standardSchema = Schema.toStandardSchemaV1(BookSchema, {
-  references: true,
-  definitions: true,
+// toStandardSchemaV1 将 Effect Schema 转为符合 Standard Schema 规范的格式，
+// 以便与其他兼容该规范的库（如 Zod、Valibot 等）互操作。
+
+const standardSchema = Schema.toStandardSchemaV1(UserSchema)
+console.log("Standard Schema 版本:", standardSchema.version)
+console.log("Standard Schema 厂商:", standardSchema.vendor)
+console.log("Standard Schema 类型:", typeof standardSchema.validate)
+
+// 使用 Standard Schema 接口进行校验
+const stdResult = standardSchema.validate({
+  name: "李四",
+  age: 30,
+  email: "lisi@example.com",
+  role: "user",
+  tags: ["backend"],
 })
+console.log("Standard Schema 校验结果:", stdResult)
 
-// Standard Schema v1 接口提供 ~standard 属性
-const standardValidate = standardSchema["~standard"].validate
-
-// 校验合法数据
-const validResult = standardValidate({
-  title: "测试书籍",
-  author: "作者",
-  year: 2024,
-  genres: ["test"],
+// 非法数据也会被拒绝
+const stdFail = standardSchema.validate({
+  name: "王五",
+  age: -1,  // 非法年龄
+  email: "wangwu@example.com",
+  role: "admin",
+  tags: [],
 })
-console.log("Standard Schema 校验合法数据:", validResult)
-
-// 校验非法数据
-const invalidResult = standardValidate({
-  title: "测试书籍",
-  author: "作者",
-  year: -1,           // 不满足 > 0
-  genres: ["test"],
-})
-console.log("Standard Schema 校验非法数据:", invalidResult)
-
-console.log("\nStandard Schema v1 的意义:")
-console.log("  - 跨库互操作: 其他支持该规范的库可以直接使用 Effect Schema")
-console.log("  - 标准化接口: ~standard.validate 统一校验入口")
-console.log("  - 生态兼容: 不锁定在 Effect-TS 生态内")
+console.log("Standard Schema 拒绝非法数据:", "issues" in stdFail ? "有校验错误" : "无校验错误")
 
 // ============================================================
 // 4. Schema 作为"单一真相源"
 // ============================================================
-// 传统方式: 类型定义 (interface) + 校验逻辑 (zod/joi) 分开维护
-// Schema 方式: 类型定义和校验规则在同一处，从 Schema 提取类型
 
-console.log("\n--- 4. Schema 作为单一真相源 ---")
+console.log("\n=== 4. Schema 作为单一真相源 ===")
 
-// 传统方式的问题演示
-console.log("传统方式:")
-console.log("  // 步骤 1: 定义 TypeScript 类型")
-console.log("  interface User {")
-console.log("    name: string")
-console.log("    age: number")
-console.log("  }")
-console.log("  // 步骤 2: 定义校验规则 (zod/yup/joi)")
-console.log("  const userSchema = z.object({")
-console.log("    name: z.string(),")
-console.log("    age: z.number().positive(),")
-console.log("  })")
-console.log("  // 问题: 类型和校验分开维护，容易不同步")
-console.log("  // 修改类型时可能忘记更新校验规则")
+// 传统方式：类型定义和校验规则分离
+// interface User { ... }        ← 类型定义（编译时）
+// function validate(input) { }  ← 校验逻辑（运行时）
+// 问题：两者可能不同步！
 
-console.log("\nSchema 方式:")
-console.log("  const UserSchema = Schema.Struct({")
-console.log("    name: Schema.String,")
-console.log("    age: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),")
-console.log("  })")
-console.log("  type User = Schema.Schema.Type<typeof UserSchema>")
-console.log("  // 优势: 类型和校验在同一处定义，永不不同步")
-
-// 实际演示
-const UserSchema = Schema.Struct({
-  name: Schema.String,
-  age: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
-})
-type User = Schema.Schema.Type<typeof UserSchema>
-
-// 类型安全: 编译器知道 user.name 是 string, user.age 是 number
-const user = Schema.decodeUnknownSync(UserSchema)({ name: "Alice", age: 30 })
-const greeting: string = `Hello, ${user.name}! You are ${user.age} years old.`
-console.log("\n类型安全使用:", greeting)
-
-// ============================================================
-// 5. 高级类型提取 — 嵌套与联合
-// ============================================================
-// Schema.Schema.Type 可以提取任意复杂 Schema 的类型。
-
-const AddressSchema = Schema.Struct({
-  street: Schema.String,
-  city: Schema.String,
-  zipCode: Schema.optional(Schema.String),
+// Schema 方式：类型和校验在一处定义
+const OrderSchema = Schema.Struct({
+  orderId: Schema.String,
+  amount: Schema.Number.pipe(
+    Schema.check(Schema.isGreaterThan(0)),
+  ),
+  currency: Schema.Literal("CNY", "USD", "EUR"),
+  items: Schema.Array(
+    Schema.Struct({
+      name: Schema.String,
+      quantity: Schema.Number.pipe(
+        Schema.check(Schema.isGreaterThan(0)),
+        Schema.check(Schema.isInt()),
+      ),
+      price: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
+    })
+  ),
 })
 
-const ContactSchema = Schema.Struct({
-  user: UserSchema,
-  address: AddressSchema,
-  phones: Schema.Array(Schema.String),
-})
+// 一处定义，多处使用：
+// 1. TypeScript 类型（编译时检查）
+type Order = typeof OrderSchema.Type
 
-type Contact = Schema.Schema.Type<typeof ContactSchema>
-// type Contact = {
-//   readonly user: User
-//   readonly address: { readonly street: string; readonly city: string; readonly zipCode?: string }
-//   readonly phones: readonly string[]
-// }
+// 2. 运行时校验
+function processOrder(raw: unknown): Order {
+  return Schema.decodeUnknownSync(OrderSchema)(raw)
+}
 
-console.log("\n--- 5. 高级类型提取 ---")
-const contact = Schema.decodeUnknownSync(ContactSchema)({
-  user: { name: "Bob", age: 25 },
-  address: { street: "123 Main St", city: "TechCity" },
-  phones: ["+1-555-0100", "+1-555-0101"],
-})
-console.log("嵌套类型提取:")
-console.log("  contact.user.name:", contact.user.name)
-console.log("  contact.address.city:", contact.address.city)
-console.log("  contact.phones:", contact.phones)
+// 3. 序列化
+function serializeOrder(order: Order): string {
+  return JSON.stringify(Schema.encodeSync(OrderSchema)(order))
+}
+
+// 4. 数据清洗（自定义逻辑 + Schema 校验）
+function validateAndClean(raw: unknown): Order {
+  // 如果数据是 JSON 字符串，先解析
+  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw
+  // Schema 校验
+  return Schema.decodeUnknownSync(OrderSchema)(parsed)
+}
+
+// 测试"单一真相源"
+const rawOrder = {
+  orderId: "ORD-2024-001",
+  amount: 299.9,
+  currency: "CNY",
+  items: [
+    { name: "Effect-TS 实战", quantity: 2, price: 99.9 },
+    { name: "TypeScript 进阶", quantity: 1, price: 100.1 },
+  ],
+}
+
+const order = processOrder(rawOrder)
+console.log("处理订单:", order.orderId)
+console.log("  金额:", order.amount, order.currency)
+console.log("  商品数:", order.items.length)
+console.log("  序列化:", serializeOrder(order))
+
+// 非法数据被拒绝
+try {
+  processOrder({ orderId: "X", amount: -50, currency: "JPY" as any, items: [] })
+} catch (err) {
+  console.log("\n非法订单被拒绝:", (err as Error).message)
+}
 
 // ============================================================
-// 6. 总结
+// 5. 类型推导的边界案例
 // ============================================================
-console.log("\n--- 6. 总结 ---")
-console.log("┌──────────────────────────────┬─────────────────────────────────┐")
-console.log("│ 类型提取方式                 │ 用途                            │")
-console.log("├──────────────────────────────┼─────────────────────────────────┤")
-console.log("│ Schema.Schema.Type<S>        │ 提取解码后类型 (业务逻辑使用)   │")
-console.log("│ Schema.Codec.Encoded<S>     │ 提取编码类型 (传输/序列化)      │")
-console.log("│ Schema.toStandardSchemaV1   │ 转换为 Standard Schema v1 格式  │")
-console.log("└──────────────────────────────┴─────────────────────────────────┘")
-console.log("\n关键理解:")
-console.log("  - Schema 是单一真相源: 类型定义 + 校验规则一处维护")
-console.log("  - Schema.Schema.Type 从 Schema 提取 TypeScript 类型")
-console.log("  - Schema.Codec.Encoded 提取编码类型 (与 Type 可能不同)")
-console.log("  - 带 transform 的 Schema: Type !== Encoded")
-console.log("  - Standard Schema v1 支持跨库互操作")
-console.log("  - 修改 Schema 时，TypeScript 类型自动更新 — 永不不同步")
+
+console.log("\n=== 5. 类型推导边界案例 ===")
+
+// Schema.optional 在 Type 和 Encoded 上的不同表现
+const WithOptional = Schema.Struct({
+  required: Schema.String,
+  optional: Schema.optional(Schema.Number),
+})
+
+type WithOptionalType = typeof WithOptional.Type
+// { readonly required: string; readonly optional?: number }
+
+// 嵌套结构的类型推导
+const NestedSchema = Schema.Struct({
+  user: Schema.Struct({
+    name: Schema.String,
+    profile: Schema.Struct({
+      bio: Schema.optional(Schema.String),
+      links: Schema.Array(Schema.String),
+    }),
+  }),
+})
+
+type Nested = typeof NestedSchema.Type
+// 深层嵌套的类型自动推导
+
+const nested: Nested = Schema.decodeUnknownSync(NestedSchema)({
+  user: {
+    name: "张三",
+    profile: {
+      links: ["https://github.com/zhangsan"],
+    },
+  },
+})
+console.log("嵌套结构推导正确:", nested.user.name, "-", nested.user.profile.links[0])
+
+console.log("\n✅ 04-type-inference.ts 运行完成")

@@ -1,7 +1,6 @@
 import { Schema, Effect, Context, Layer } from "effect"
 import * as Log from "@miniopencode/core/util/log"
 import { Global } from "@miniopencode/core/global"
-import { InstanceRef } from "@/effect/instance-ref"
 import path from "path"
 import fs from "fs"
 
@@ -30,6 +29,7 @@ export const ProviderEntry = Schema.Struct({
 export type ProviderEntry = Schema.Schema.Type<typeof ProviderEntry>
 
 export const ProviderConfig = Schema.Struct({
+  default: Schema.optional(Schema.String),
   providers: Schema.optional(Schema.Record(Schema.String, ProviderEntry)),
 })
 export type ProviderConfig = Schema.Schema.Type<typeof ProviderConfig>
@@ -60,17 +60,13 @@ export const defaultConfig: MiniOpenCodeConfig = {
     default: "default",
     agents: {
       default: {
-        model: "gpt-4o-mini",
+        model: "qwen2.5:latest",
         system: "You are a helpful assistant.",
         permissions: ["allow:*"],
       },
     },
   },
-  provider: {
-    providers: {
-      openai: { baseURL: "https://api.openai.com/v1" },
-    },
-  },
+  provider: {},
   permission: {
     rules: [{ pattern: "allow:*", allow: true }],
   },
@@ -85,7 +81,7 @@ export interface ConfigShape {
 
 export class ConfigService extends Context.Service<ConfigService, ConfigShape>()("@miniopencode/Config") {}
 
-function findConfigFile(dir: string): string | undefined {
+export function findConfigFile(dir: string): string | undefined {
   const candidates = ["miniopencode.json", "miniopencode.jsonc", ".miniopencode.json"]
   for (const name of candidates) {
     const p = path.join(dir, name)
@@ -96,7 +92,7 @@ function findConfigFile(dir: string): string | undefined {
   return undefined
 }
 
-function loadConfigFile(filePath: string): MiniOpenCodeConfig {
+export function loadConfigFile(filePath: string): MiniOpenCodeConfig {
   const raw = fs.readFileSync(filePath, "utf-8")
   const parsed = JSON.parse(raw)
   const decoded = Schema.decodeUnknownSync(MiniOpenCodeConfig as any)(parsed)
@@ -104,14 +100,14 @@ function loadConfigFile(filePath: string): MiniOpenCodeConfig {
   return decoded
 }
 
-export const ConfigLive = Layer.effect(
+export const ConfigLive = Layer.succeed(
   ConfigService,
-  Effect.gen(function* () {
-    const ref = yield* InstanceRef
-    const configPath = findConfigFile(ref.directory)
+  (() => {
+    const dir = process.cwd()
+    const configPath = findConfigFile(dir)
     const config: MiniOpenCodeConfig = configPath
       ? loadConfigFile(configPath)
       : defaultConfig
     return { config, configPath }
-  }),
+  })(),
 )

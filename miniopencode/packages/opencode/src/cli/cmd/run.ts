@@ -2,7 +2,8 @@ import { Effect } from "effect"
 import * as Log from "@miniopencode/core/util/log"
 import { AppRuntime, init } from "../bootstrap"
 import { LLM } from "@miniopencode/llm"
-import { OpenAI } from "@miniopencode/llm/providers/openai"
+import { ProviderService } from "@/provider/index"
+import type { ResolvedModel } from "@/provider/schema"
 import { AgentService } from "@/agent/agent"
 import { ToolRuntimeService } from "@/tool/tool"
 import readline from "readline"
@@ -25,8 +26,14 @@ export async function runCommand(opts: { prompt?: string; model?: string; baseUR
     process.exit(1)
   }
 
-  const model = resolveModel(opts)
-  log.info("calling LLM", { prompt: opts.prompt.slice(0, 60) })
+  const model = await AppRuntime.runPromise(
+    ProviderService.use((svc) => svc.resolve(opts.model)),
+  ) as ResolvedModel
+  // CLI overrides take precedence over config
+  if (opts.baseURL) model.baseURL = opts.baseURL
+  if (opts.apiKey) model.apiKey = opts.apiKey
+
+  log.info("calling LLM", { model: model.modelID, prompt: opts.prompt.slice(0, 60) })
 
   const agentInfo = await AppRuntime.runPromise(AgentService.use((svc) => svc.defaultAgent())) as any
   const system = agentInfo?.system ?? "You are a helpful assistant."
@@ -46,17 +53,13 @@ export async function runCommand(opts: { prompt?: string; model?: string; baseUR
   console.log(result.text)
 }
 
-function resolveModel(opts: { model?: string; baseURL?: string; apiKey?: string }) {
-  const modelID = opts.model ?? process.env.MINICODE_MODEL ?? "gpt-4o-mini"
-  const apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY ?? process.env.MINICODE_API_KEY
-  if (opts.baseURL) {
-    return { providerID: "openai-compatible" as any, modelID: modelID as any, apiKey, baseURL: opts.baseURL }
-  }
-  return OpenAI.model(modelID, { apiKey })
-}
-
 async function runInteractive(opts: { model?: string; baseURL?: string; apiKey?: string; tools: any }) {
-  const model = resolveModel(opts)
+  const model = await AppRuntime.runPromise(
+    ProviderService.use((svc) => svc.resolve(opts.model)),
+  ) as ResolvedModel
+  if (opts.baseURL) model.baseURL = opts.baseURL
+  if (opts.apiKey) model.apiKey = opts.apiKey
+
   const agentInfo = await AppRuntime.runPromise(AgentService.use((svc) => svc.defaultAgent())) as any
   const system = agentInfo?.system ?? "You are a helpful assistant."
 

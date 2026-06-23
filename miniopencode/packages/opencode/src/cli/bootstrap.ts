@@ -1,4 +1,4 @@
-import { Layer, ManagedRuntime, Effect } from "effect"
+import { Layer, ManagedRuntime } from "effect"
 import * as Log from "@miniopencode/core/util/log"
 import { Global } from "@miniopencode/core/global"
 import { Env } from "@/env"
@@ -7,15 +7,19 @@ import { InstanceLayer } from "@/project/bootstrap"
 
 const log = Log.create({ service: "bootstrap" })
 
-const refLayer = Layer.succeed(InstanceRef as any, { directory: process.cwd(), worktree: "/" } as any)
-const wsLayer = Layer.succeed(WorkspaceRef as any, "/" as any)
-const allRefs = Layer.mergeAll(refLayer as any, wsLayer as any)
+// Dynamic layers: these vary per CLI invocation (working directory, etc.)
+const refLayer = Layer.succeed(InstanceRef, { directory: process.cwd(), worktree: "/" })
+const wsLayer = Layer.succeed(WorkspaceRef, "/")
 
-export const AppLayer = Layer.mergeAll(allRefs as any, InstanceLayer as any) as Layer.Layer<any>
-const rt = ManagedRuntime.make(AppLayer as any)
+// Merge dynamic layers with the pre-computed service layer.
+// InstanceLayer provides all business services via Layer.succeed, so
+// Layer.mergeAll resolves cleanly — no Layer.provide needed.
+export const AppLayer = Layer.mergeAll(refLayer, wsLayer, InstanceLayer)
+
+const rt = ManagedRuntime.make(AppLayer)
 
 export const AppRuntime = {
-  runSync: (effect: any) => rt.runSync(effect),
+  runSync: <A>(effect: any) => rt.runSync(effect) as A,
   runPromise: (effect: any, options?: any) => rt.runPromise(effect, options),
   runPromiseExit: (effect: any, options?: any) => rt.runPromiseExit(effect, options),
   runFork: (effect: any) => rt.runFork(effect),

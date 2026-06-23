@@ -1,0 +1,15 @@
+{
+  "provider": {
+    "default": "openai",
+    "providers": {
+      "ollama": {
+        "baseURL": "https://ollama.com/v1",
+        "apiKey": "your-api-key"
+      },
+      "openai": {
+        "baseURL": "https://ark.cn-beijing.volces.com/api/coding",
+        "apiKey": "ark-c5e2fa41-9de3-4496-85f8-68fc94fb8fff-ace69"
+      }
+    }
+  }
+}
