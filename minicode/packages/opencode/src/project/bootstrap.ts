@@ -13,13 +13,16 @@ import { Command } from "@/command"
 import { ACPAgent } from "@/agent-bus"
 import { BackgroundJob } from "@/background/job"
 
-// Agent depends on Config (Agent's layer build effect yields Config.Service).
-// Layer.mergeAll treats all layers as siblings, so Agent can't find Config.
-// Fix: provide Config to Agent via Layer.provideMerge, then merge the result
-// with the other sibling layers.
+// Agent depends on Config. Layer.provideMerge feeds Config into Agent
+// while keeping Config in the final context for other services.
 const agentWithConfig = (Agent.defaultLayer as any).pipe(Layer.provideMerge(Config.defaultLayer as any))
 
-// ACP depends on Bus — provide it the same way
+// ToolRegistry (via TaskTool) depends on Agent + Session + Project.
+// Merge all deps into one layer, then provideMerge that into ToolRegistry.
+const toolDeps = Layer.mergeAll(agentWithConfig as any, Session.defaultLayer as any, ProjectMod.defaultLayer as any)
+const toolsWithDeps = (ToolRegistry.defaultLayer as any).pipe(Layer.provideMerge(toolDeps as any))
+
+// ACP depends on Bus
 const acpWithBus = (ACPAgent.defaultLayer as any).pipe(Layer.provideMerge(Bus.defaultLayer as any))
 
 export const InstanceLayer = Layer.mergeAll(
@@ -30,7 +33,7 @@ export const InstanceLayer = Layer.mergeAll(
   Skill.defaultLayer,
   agentWithConfig as any,
   Session.defaultLayer,
-  ToolRegistry.defaultLayer,
+  toolsWithDeps as any,
   ProjectMod.defaultLayer,
   Command.defaultLayer,
   acpWithBus as any,
