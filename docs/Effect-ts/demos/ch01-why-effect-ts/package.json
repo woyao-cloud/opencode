@@ -1,0 +1,13 @@
+{
+  "name": "ch01-why-effect-ts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:pain-points": "bun run src/01-pain-points.ts",
+    "demo:first-effect": "bun run src/02-first-effect.ts",
+    "demo:comparison": "bun run src/03-comparison.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}

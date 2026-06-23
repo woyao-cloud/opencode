@@ -1,0 +1,435 @@
+# 第 1 章: 为什么需要 Effect-TS？
+
+## 1. 本章目标
+
+完成本章学习后，你将能够：
+- 识别 TypeScript 异步编程中的三大核心痛点：错误类型丢失、依赖注入无标准方案、副作用与业务逻辑耦合
+- 理解 Effect-TS 的核心理念：将副作用（side effect）建模为类型，使错误可追踪、依赖可注入、副作用可控
+- 运行并理解第一个 Effect 程序，建立对 `Effect<R, E, A>` 类型签名的初步认知
+- 对比 Effect-TS 与纯 TypeScript、zod + 手工 DI 等方案的本质差异
+
+## 2. 前置知识
+
+阅读本章前，你需要掌握以下 TypeScript 基础知识：
+
+- **Promise 与 async/await:** 理解异步函数的声明方式、`await` 的语义、Promise 链式调用
+- **try/catch 错误处理:** 理解 `catch` 块中错误对象的类型为 `unknown`，以及 `instanceof` 类型缩窄的局限性
+- **类与接口:** 理解 TypeScript 中 `class`、`interface`、泛型的基本用法
+- **模块系统:** 理解 ES Module 的 `import`/`export` 语法
+
+本章不要求任何 Effect-TS 前置知识 — 这是全书的第一章，从零开始。
+
+## 3. 概念讲解
+
+### 3.1 TypeScript 异步编程的三大痛点
+
+TypeScript 为 JavaScript 带来了静态类型系统，极大地提升了代码的可维护性和重构信心。然而，在异步编程领域，TypeScript 的类型系统存在三个结构性缺陷，这些缺陷不是"编码习惯"问题，而是语言设计层面的限制。
+
+#### 痛点 1: Promise 错误类型丢失
+
+考虑一个典型的异步函数签名：
+
+```typescript
+async function fetchUser(id: string): Promise<{ name: string; email: string }>
+```
+
+从类型签名看，这个函数"总是"返回一个用户对象。但实际上，它可能因为网络故障、认证过期、用户不存在、服务端内部错误等多种原因抛出异常。这些可能的失败模式在类型签名中**完全不可见**。
+
+更糟糕的是，`catch` 块中的错误对象类型是 `unknown`（TypeScript 4.0+ 的默认行为）：
+
+```typescript
+try {
+  const user = await fetchUser("123")
+} catch (err) {
+  // err: unknown — 你无法安全地访问 err.message
+  // 也无法区分这是网络错误还是业务错误
+}
+```
+
+这意味着：
+- **编译器无法帮你检查错误处理是否完整。** 你可能忘记处理"用户不存在"的情况，编译器不会提醒你。
+- **重构时错误类型变化不会被捕获。** 如果 `fetchUser` 新增了一种错误类型（如 `PermissionDenied`），所有调用方都不会收到类型错误提示。
+- **错误处理逻辑依赖运行时判断。** 你只能通过 `instanceof` 或字符串匹配来区分错误类型，这既脆弱又冗长。
+
+#### 痛点 2: 依赖注入无标准方案
+
+在中等规模以上的应用中，模块之间必然存在依赖关系。`UserService` 依赖 `Database`，`OrderService` 依赖 `PaymentGateway` 和 `NotificationService`。管理这些依赖有两种传统方式：
+
+**方式 A: 全局单例**
+
+```typescript
+class Database {
+  private static instance: Database
+  static getInstance() { /* ... */ }
+}
+
+class UserService {
+  async getUsers() {
+    const db = Database.getInstance() // 硬编码依赖
+    return db.query("SELECT * FROM users")
+  }
+}
+```
+
+问题：
+- **测试困难:** 单元测试中无法将 `Database` 替换为内存模拟实现
+- **隐式耦合:** `UserService` 的类型签名不反映它对 `Database` 的依赖
+- **生命周期不可控:** 单例的创建和销毁时机由运行时决定，而非由业务逻辑控制
+
+**方式 B: 手工构造函数注入**
+
+```typescript
+class UserService {
+  constructor(private db: Database) {}
+  async getUsers() {
+    return this.db.query("SELECT * FROM users")
+  }
+}
+```
+
+问题：
+- **依赖链手动组装:** 当依赖层次加深（`Controller → Service → Repository → Database`），你需要手动创建并传递每一层的实例
+- **无类型级别的依赖追踪:** 你无法从类型签名知道一个函数需要哪些依赖
+- **缺乏标准化:** 每个项目、每个团队都有自己的 DI 方式，没有统一的模式
+
+#### 痛点 3: 副作用与业务逻辑耦合
+
+"副作用"（side effect）是指函数返回值之外对外部世界的任何影响：日志输出、文件读写、网络请求、时间获取、随机数生成、数据库操作等。
+
+在传统 TypeScript 中，副作用和纯业务逻辑在代码中**无法区分**：
+
+```typescript
+async function processOrder(orderId: string) {
+  console.log(`[INFO] 开始处理订单 ${orderId}`) // 副作用: 日志
+  const startTime = Date.now()                  // 副作用: 时间
+
+  const result = await fetch(`/api/orders/${orderId}`) // 副作用: 网络
+  const data = await result.json()
+
+  console.log(`[INFO] 订单处理完成，耗时 ${Date.now() - startTime}ms`)
+  return data
+}
+```
+
+这带来的问题：
+- **测试需要 mock 全局对象:** 测试 `processOrder` 需要 mock `console.log`、`Date.now`、`fetch` — 每个副作用源都需要单独处理
+- **无法从类型签名判断函数的"纯净度":** `Promise<Order>` 看起来和纯数据转换函数没有区别
+- **副作用不可组合:** 你无法将日志策略、时间策略作为参数传入，无法在不同环境使用不同的副作用实现
+
+### 3.2 Effect-TS 的核心理念：副作用即数据类型
+
+Effect-TS 的核心思想可以用一句话概括：**将副作用从"隐式的运行时行为"提升为"显式的类型级信息"。**
+
+在 Effect-TS 中，每个可能产生副作用的操作都被封装为一个 `Effect<R, E, A>` 类型的值。这个类型有三个参数：
+
+| 参数 | 全称 | 含义 | 对应痛点 |
+|------|------|------|----------|
+| `R` | Requirements | 程序运行所需的依赖（如数据库连接、配置、日志服务） | 痛点 2: 依赖注入 |
+| `E` | Error | 程序可能产生的错误类型 | 痛点 1: 错误类型丢失 |
+| `A` | Value | 程序成功时返回的值类型 | — |
+
+对比传统 TypeScript 和 Effect-TS 的思维方式：
+
+| 维度 | 传统 TypeScript | Effect-TS |
+|------|----------------|-----------|
+| 错误 | 隐式抛出，类型为 `unknown` | 显式声明在 `E` 参数中，编译器可检查 |
+| 依赖 | 全局变量或手工传递 | 声明在 `R` 参数中，通过 Layer 系统自动注入 |
+| 副作用 | 与业务逻辑混合，无法区分 | 封装在 Effect 中，可替换、可组合、可测试 |
+| 函数签名 | `(input) => Promise<Output>` | `(input) => Effect<Requirements, Error, Output>` |
+
+#### Effect 类型签名的威力
+
+回到痛点 1 的场景，用 Effect-TS 重写后：
+
+```typescript
+// 传统版本: 错误信息完全丢失
+async function fetchUser(id: string): Promise<{ name: string; email: string }>
+
+// Effect 版本: 错误类型显式声明
+const fetchUser = (id: string): Effect.Effect<
+  never,                                    // R: 无外部依赖
+  NetworkError | NotFoundError,             // E: 可能失败的方式一目了然
+  { name: string; email: string }           // A: 成功返回值
+>
+```
+
+当你使用这个函数时，编译器知道可能发生 `NetworkError` 和 `NotFoundError`。如果你只处理了 `NetworkError` 而忘记了 `NotFoundError`，Effect-TS 的类型系统可以在编译时给出警告。
+
+#### 核心设计原则
+
+Effect-TS 的设计遵循三个原则：
+
+1. **显式优于隐式（Explicit over Implicit）:** 错误、依赖、副作用都必须在类型签名中声明
+2. **组合优于继承（Composition over Inheritance）:** Effect 通过 `pipe`、`flow`、`Effect.gen` 等操作符组合，而非通过类继承
+3. **类型驱动开发（Type-Driven Development）:** 类型签名不仅是文档，更是编译器可验证的契约
+
+### 3.3 与其他方案的对比
+
+#### vs fp-ts
+
+fp-ts 是 Effect-TS 的前身和灵感来源，两者都源于函数式编程范式。关键差异：
+
+- **一体化 vs 工具箱:** fp-ts 是一个函数式编程工具集（`Option`、`Either`、`Task`、`Reader` 等），你需要自己组合它们。Effect-TS 将这些概念统一为 `Effect<R, E, A>` 单一类型。
+- **并发模型:** fp-ts 没有内置的并发原语。Effect-TS 提供 Fiber（纤程）、Stream（流）、Queue（队列）等完整的并发体系。
+- **错误类型:** fp-ts 的 `Either<E, A>` 只能表达单一错误类型。Effect-TS 的 `E` 参数支持联合类型，可以精确表达多种错误。
+- **依赖注入:** fp-ts 的 `ReaderTaskEither<R, E, A>` 组合了三个概念，类型签名冗长。Effect-TS 的 `Effect<R, E, A>` 原生支持，且提供 Layer 系统。
+
+#### vs zod + 手工 DI
+
+许多项目使用 zod 做运行时校验，配合手工依赖注入。这种组合的问题：
+
+- **类型与校验分离:** 你需要先定义 TypeScript 类型，再用 zod 写一份等价的 schema。两者需要手动保持同步。
+- **DI 无标准方案:** 手工 DI 在项目变大时维护成本急剧上升。
+- **错误处理不统一:** zod 的校验错误、网络错误、业务错误各自有不同的处理方式，没有统一的错误通道。
+
+Effect-TS 的 Schema 系统**同时**提供 TypeScript 类型推导和运行时校验，一份定义，双重用途。Context + Layer 系统提供标准化的依赖注入，从声明到组装到测试替换都有清晰的模式。
+
+## 4. 代码示例
+
+本章配套 3 个可独立运行的示例文件，位于 `demos/ch01-why-effect-ts/src/` 目录下。建议按顺序阅读和运行。
+
+### 4.1 `01-pain-points.ts` — 三大痛点演示
+
+**运行:** `cd demos/ch01-why-effect-ts && bun install && bun run src/01-pain-points.ts`
+
+这个文件用纯 TypeScript 代码展示了第 3.1 节描述的三个痛点。
+
+**痛点 1 代码解析（第 56-76 行）:**
+
+```typescript
+async function fetchUserData(id: string): Promise<{ name: string; email: string }> {
+  if (id === "error") {
+    throw new Error("Network error: Connection refused")
+  }
+  if (id === "not-found") {
+    throw new Error("User not found")
+  }
+  return { name: "Alice", email: "alice@example.com" }
+}
+```
+
+函数签名 `Promise<{ name: string; email: string }>` 承诺返回一个用户对象，但实际上可能抛出两种不同的错误。调用方从类型签名中完全看不到这些失败模式。
+
+```typescript
+async function demo1() {
+  try {
+    const user = await fetchUserData("error")
+    console.log("用户:", user)
+  } catch (err) {
+    // err 是 unknown 类型，无法区分错误类型
+    console.log("出了点问题:", String(err))
+  }
+}
+```
+
+`catch` 块中 `err` 的类型是 `unknown` — 你无法安全地判断这是 `NetworkError` 还是 `NotFoundError`，只能笼统地输出错误信息。在生产环境中，这意味着你无法针对不同错误类型采取不同的恢复策略（如重试网络错误、返回 404 给用户等）。
+
+**痛点 2 代码解析（第 80-99 行）:**
+
+```typescript
+class Database {
+  private static instance: Database
+  static getInstance() {
+    if (!this.instance) this.instance = new Database()
+    return this.instance
+  }
+  async query(sql: string): Promise<any[]> { /* ... */ }
+}
+
+class UserService {
+  async getUsers() {
+    const db = Database.getInstance() // 硬编码依赖
+    return db.query("SELECT * FROM users")
+  }
+}
+```
+
+`UserService` 通过 `Database.getInstance()` 硬编码了对 `Database` 单例的依赖。在单元测试中，你无法将 `Database` 替换为模拟实现，因为依赖关系被硬编码在方法体内部，而非通过参数或构造函数暴露。
+
+**痛点 3 代码解析（第 103-113 行）:**
+
+```typescript
+async function processOrder(orderId: string) {
+  console.log(`[INFO] 开始处理订单 ${orderId}`) // 副作用: 日志
+  const startTime = Date.now()                  // 副作用: 时间
+  const result = await fetch(`/api/orders/${orderId}`) // 副作用: 网络
+  const data = await result.json()
+  console.log(`[INFO] 订单处理完成，耗时 ${Date.now() - startTime}ms`)
+  return data
+}
+```
+
+日志输出、时间获取、网络请求三种副作用与核心业务逻辑（获取订单数据）混在同一个函数中。你无法单独测试业务逻辑而不触发副作用，也无法在不同环境（开发/测试/生产）使用不同的日志策略。
+
+### 4.2 `02-first-effect.ts` — 第一个 Effect 程序
+
+**运行:** `bun run src/02-first-effect.ts`
+
+这个文件用 Effect-TS 重写了痛点 1 的场景，展示类型安全的错误处理。
+
+**错误类型定义（第 10-16 行）:**
+
+```typescript
+class NetworkError extends Schema.TaggedErrorClass<NetworkError>()("NetworkError", {
+  message: Schema.String,
+}) {}
+
+class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("NotFoundError", {
+  id: Schema.String,
+}) {}
+```
+
+`Schema.TaggedErrorClass` 是 Effect-TS 中定义类型化错误的方式。每个错误类有一个唯一的 `_tag` 字段（这里是 `"NetworkError"` 和 `"NotFoundError"`），使得后续可以用 `catchTag` 按标签精确捕获。同时，每个错误类携带结构化的错误信息（`message`、`id`），而非仅仅是字符串消息。
+
+**Effect 函数签名（第 20-25 行）:**
+
+```typescript
+const fetchUserData = (id: string): Effect.Effect<
+  never,                                    // R: 无外部依赖
+  NetworkError | NotFoundError,             // E: 可能失败的方式
+  { name: string; email: string }           // A: 成功返回值
+> =>
+  id === "error"
+    ? Effect.fail(new NetworkError({ message: "Connection refused" }))
+    : id === "not-found"
+      ? Effect.fail(new NotFoundError({ id }))
+      : Effect.succeed({ name: "Alice", email: "alice@example.com" })
+```
+
+关键对比：
+- 传统版本用 `throw` 抛出错误，Effect 版本用 `Effect.fail` 返回错误 — 错误成为返回值的一部分，而非控制流异常
+- 传统版本的错误类型在签名中不可见，Effect 版本的 `E` 参数明确声明了 `NetworkError | NotFoundError`
+- `Effect.succeed` 对应正常返回值，与 `Effect.fail` 对称
+
+**Effect.gen 生成器语法（第 27-30 行）:**
+
+```typescript
+const program = Effect.gen(function* () {
+  const user = yield* fetchUserData("alice")
+  console.log("用户:", user)
+})
+```
+
+`Effect.gen` 是 Effect-TS 提供的生成器语法糖，让你可以用类似 `async/await` 的风格编写 Effect 程序。`yield*` 的作用类似于 `await` — 它"解包"一个 Effect，获取其成功值。但与 `await` 不同的是，`yield*` 同时跟踪错误类型和依赖需求。
+
+**运行 Effect（第 33 行）:**
+
+```typescript
+Effect.runSync(program)
+```
+
+`Effect.runSync` 同步执行一个 Effect 程序。它适用于不包含异步操作（如 `Promise`、`setTimeout`）的 Effect。对于包含异步操作的 Effect，应使用 `Effect.runPromise`。
+
+### 4.3 `03-comparison.ts` — 方案对比
+
+**运行:** `bun run src/03-comparison.ts`
+
+这个文件在同一场景下对比三种方案，展示 Effect-TS 的一体化优势。
+
+**Schema 统一类型与校验（第 24-28 行）:**
+
+```typescript
+const Config = Schema.Struct({
+  apiUrl: Schema.String,
+  timeout: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
+})
+type Config = typeof Config.Type // 类型自动推导
+```
+
+`Schema.Struct` 同时完成了两件事：
+1. 定义了运行时校验规则（`apiUrl` 必须是字符串，`timeout` 必须是正数）
+2. 推导出 TypeScript 类型 `Config`（通过 `typeof Config.Type`）
+
+对比 zod 方案，你不需要分别维护 TypeScript `interface` 和 zod schema — 一份定义，双重用途。
+
+**Context.Service 声明依赖（第 30-33 行）:**
+
+```typescript
+class ApiService extends Context.Service<ApiService>()("ApiService", {
+  fetch: (): Effect.Effect<never, Error, string> => Effect.succeed(""),
+}) {}
+```
+
+`Context.Service` 声明了一个名为 `"ApiService"` 的服务接口，同时提供默认实现。这个接口的类型信息（`fetch` 方法的签名）被编码在泛型参数中。后续通过 `yield* ApiService` 即可获取该服务的实例，而实例的具体实现通过 Layer 系统在运行时注入。
+
+**完整流程（第 37-41 行）:**
+
+```typescript
+const program = Effect.gen(function* () {
+  const api = yield* ApiService       // 获取注入的 ApiService 实例
+  const result = yield* api.fetch()   // 调用 fetch，错误类型被跟踪
+  return result
+})
+```
+
+这个 `program` 的类型签名会自动推导为 `Effect<ApiService, Error, string>` — 编译器知道它需要 `ApiService` 依赖，可能产生 `Error` 错误，成功时返回 `string`。所有这些信息都来自类型系统，无需手动标注。
+
+## 5. OpenCode 实战引用
+
+本章为基础概念章节，不涉及具体的 OpenCode 项目代码引用。在后续章节中，我们将逐步展示 OpenCode 项目中如何使用 Effect-TS 构建生产级应用：
+
+- **第 19 章** 将完整剖析 OpenCode 的 Runtime 架构、工具系统、MCP 客户端、文件监控和权限系统
+- 从**第 2 章**开始，每章的"OpenCode 实战引用"部分将展示该章概念在 OpenCode 中的真实使用场景
+
+如果你现在就感兴趣，可以浏览 OpenCode 项目中 `packages/` 目录下的 TypeScript 文件，观察 `Effect.gen`、`Schema.Struct`、`Context.Service` 等模式的实际应用。
+
+## 6. 常见陷阱
+
+### 陷阱 1: 误以为 Effect 只是"更好的 Promise"
+
+这是初学者最常见的误解。Effect 和 Promise 有本质区别：
+
+| 特性 | Promise | Effect |
+|------|---------|--------|
+| 执行模型 | 创建即执行（eager） | 描述与执行分离（lazy） |
+| 错误类型 | `unknown` | 编译时已知的联合类型 |
+| 依赖注入 | 无 | `R` 参数 + Layer 系统 |
+| 可取消性 | 不可取消（AbortController 是外部补丁） | 原生支持 Fiber 取消 |
+| 资源管理 | 无内置机制 | Scope + acquireRelease |
+| 并发模型 | Promise.all / race | Fiber + Stream + Queue + 结构化并发 |
+
+**正确理解:** Effect 是一个"副作用描述"（description of a side effect），而非"副作用执行"（execution of a side effect）。创建 Effect 时不会执行任何副作用 — 只有调用 `runSync`、`runPromise`、`runFork` 时才会真正执行。这类似于"食谱"和"烹饪"的区别：Effect 是食谱，run 是烹饪。
+
+### 陷阱 2: 试图一次性理解所有概念
+
+Effect-TS 的概念体系丰富（Effect、Schema、Context、Layer、Scope、Fiber、Stream 等），初学者容易产生"需要全部理解才能开始使用"的焦虑。
+
+**正确做法:** 本书按依赖关系组织章节，每章只引入少量新概念。第 1 章只需要理解"为什么"和"Effect 类型长什么样"。具体的 API 用法将在第 2 章及后续章节逐步展开。建议按顺序阅读，不要跳章。
+
+### 陷阱 3: 在简单场景中过度使用 Effect
+
+并非所有代码都需要用 Effect 重写。纯计算函数（如数据转换、格式化）不需要 Effect — 它们没有副作用，用普通 TypeScript 函数即可。
+
+**判断标准:** 如果一个函数涉及以下任何一项，考虑使用 Effect：
+- 可能失败的操作（网络请求、文件读写、数据校验）
+- 需要外部依赖（数据库、配置、第三方服务）
+- 需要资源管理（数据库连接、文件句柄、定时器）
+- 需要并发控制（竞速、重试、超时）
+
+如果一个函数只是纯数据转换，普通 TypeScript 函数是最佳选择。
+
+## 7. 本章小结
+
+本章从 TypeScript 异步编程的三个结构性痛点出发，引入了 Effect-TS 的核心理念：
+
+1. **错误类型化:** Effect 的 `E` 参数将错误从"隐式的运行时异常"提升为"显式的编译时类型"。调用方可以从函数签名直接知道可能发生哪些错误，编译器可以检查错误处理是否完整。
+
+2. **依赖可注入:** Effect 的 `R` 参数声明程序的依赖需求，Context + Layer 系统提供标准化的依赖注入方案。依赖关系从"硬编码在方法体中"变为"声明在类型签名中"，测试替换变得简单直接。
+
+3. **副作用可控:** 所有副作用操作被封装为 Effect 值，与纯业务逻辑明确分离。副作用可以像普通值一样被传递、组合、替换，使测试和重构更加安全。
+
+**核心公式:**
+
+```
+Effect<R, E, A> = 类型安全的副作用描述
+  R = 我需要什么（依赖）
+  E = 可能出什么错（错误）
+  A = 成功时返回什么（值）
+```
+
+下一章将深入 `Effect<R, E, A>` 类型的具体用法：如何创建 Effect、如何组合 Effect、如何运行 Effect。你将开始动手编写真正可用的 Effect-TS 代码。
+
+---
+
+> 本章示例代码: `demos/ch01-why-effect-ts/src/`
+> 下一章: [第 2 章: Effect 类型入门](./chapter-02-effect-type-primer.md)
