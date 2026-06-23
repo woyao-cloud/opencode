@@ -21,8 +21,7 @@ const BookSchema = Schema.Struct({
   year: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
   genres: Schema.Array(Schema.String),
   rating: Schema.optional(Schema.Number.pipe(
-    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-    Schema.check((n) => n <= 5, { message: () => "评分必须在 0-5 之间" })
+    Schema.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(5))
   )),
 })
 
@@ -80,26 +79,19 @@ console.log("简单 Schema (无 transform):")
 console.log("  Type === Encoded")
 
 // 2.2 带 transform 的 Schema: Type !== Encoded
-const NumberFromString = Schema.compose(Schema.String, Schema.Number, {
-  decode: (s) => {
-    const n = Number(s)
-    if (Number.isNaN(n)) throw new Error(`无法将 "${s}" 转换为数字`)
-    return n
-  },
-  encode: (n) => String(n),
-})
+// 使用内置的 Schema.NumberFromString — Type=number, Encoded=string
 
-type NFSType = Schema.Schema.Type<typeof NumberFromString>    // number
-type NFSEncoded = Schema.Codec.Encoded<typeof NumberFromString> // string
+type NFSType = Schema.Schema.Type<typeof Schema.NumberFromString>    // number
+type NFSEncoded = Schema.Codec.Encoded<typeof Schema.NumberFromString> // string
 
 console.log("\n带 transform 的 Schema (NumberFromString):")
 console.log("  Type (解码后): number — 业务逻辑中使用的类型")
 console.log("  Encoded (编码): string — JSON/API 传输的类型")
 
 // 验证
-const nfsValue = Schema.decodeUnknownSync(NumberFromString)("42")
+const nfsValue = Schema.decodeUnknownSync(Schema.NumberFromString)("42")
 console.log("  解码 '42' →", nfsValue, `(typeof: ${typeof nfsValue})`)
-const nfsEncoded = Schema.encodeSync(NumberFromString)(nfsValue)
+const nfsEncoded = Schema.encodeSync(Schema.NumberFromString)(nfsValue)
 console.log("  编码 42 →", nfsEncoded, `(typeof: ${typeof nfsEncoded})`)
 
 // ============================================================

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 03-encode-decode.ts — 序列化与反序列化
  *
  * 学习目标: 掌握 Schema 的编解码操作，理解 Type（解码后类型）与 Encoded（编码类型）
@@ -109,79 +109,72 @@ const reDecoded = Schema.decodeUnknownSync(ProductSchema)(JSON.parse(backToJson)
 console.log("往返验证: 重新解码后的 name =", reDecoded.name)
 
 // ============================================================
-// 5. 自定义 transform — 数据清洗
+// 5. 自定义 transform — 数据清洗与类型转换
 // ============================================================
-// Schema.transform 或 Schema.compose 可以在编解码过程中转换数据。
-// 常见场景: 字符串 ↔ 数字、日期字符串 ↔ Date 对象、数据清洗。
+// Effect-TS 提供内置的 transform Schema（如 NumberFromString、DateFromString），
+// 也可以使用 Schema.decodeTo + SchemaGetter.transform 创建自定义转换。
 
-// 5.1 字符串数字 → 数字 (NumberFromString 模式)
-const TrimmedString = Schema.String.pipe(
-  Schema.check((s) => s.trim().length > 0, { message: () => "字符串不能为空或全空白" })
-)
+import { SchemaGetter } from "effect"
 
-// 5.2 使用 Schema.compose 进行类型转换
-// compose: 从 A 解码到 B，从 B 编码回 A
-const NumberFromString = Schema.compose(Schema.String, Schema.Number, {
-  decode: (s) => {
-    const n = Number(s)
-    if (Number.isNaN(n)) {
-      throw new Error(`无法将 "${s}" 转换为数字`)
-    }
-    return n
-  },
-  encode: (n) => String(n),
-})
-
+// 5.1 内置 transform: Schema.NumberFromString
+// 将字符串解码为数字，将数字编码为字符串
 console.log("\n--- 5. 自定义 transform ---")
+console.log("5.1 内置 NumberFromString:")
 
-// 解码: 字符串 → 数字
-const num1 = Schema.decodeUnknownSync(NumberFromString)("42")
-console.log("NumberFromString 解码 '42' →", num1, `(type: ${typeof num1})`)
+const num1 = Schema.decodeUnknownSync(Schema.NumberFromString)("42")
+console.log("  解码 '42' →", num1, `(type: ${typeof num1})`)
 
-// 编码: 数字 → 字符串
-const str1 = Schema.encodeSync(NumberFromString)(num1)
-console.log("NumberFromString 编码 42 →", str1, `(type: ${typeof str1})`)
+const str1 = Schema.encodeSync(Schema.NumberFromString)(num1)
+console.log("  编码 42 →", str1, `(type: ${typeof str1})`)
 
 // 非法输入
 try {
-  Schema.decodeUnknownSync(NumberFromString)("not-a-number")
+  Schema.decodeUnknownSync(Schema.NumberFromString)("not-a-number")
 } catch (err) {
-  console.log("非法输入 'not-a-number':", (err as Error).message)
+  console.log("  非法输入 'not-a-number':", (err as Error).message)
 }
 
-// 5.3 日期字符串 ↔ Date 对象
-const DateFromString = Schema.compose(Schema.String, Schema.Date, {
-  decode: (s) => {
-    const d = new Date(s)
-    if (Number.isNaN(d.getTime())) {
-      throw new Error(`无法将 "${s}" 解析为日期`)
-    }
-    return d
-  },
-  encode: (d) => d.toISOString(),
-})
+// 5.2 内置 transform: Schema.DateFromString
+// 将 ISO 8601 字符串解码为 Date，将 Date 编码为 ISO 8601 字符串
+console.log("\n5.2 内置 DateFromString:")
 
-console.log("\n日期字符串 ↔ Date 对象:")
-const date = Schema.decodeUnknownSync(DateFromString)("2024-01-15T08:30:00Z")
+const date = Schema.decodeUnknownSync(Schema.DateFromString)("2024-01-15T08:30:00Z")
 console.log("  解码 '2024-01-15T08:30:00Z' →", date)
 console.log("  date.getFullYear():", date.getFullYear())
 
-const dateStr = Schema.encodeSync(DateFromString)(date)
+const dateStr = Schema.encodeSync(Schema.DateFromString)(date)
 console.log("  编码 Date →", dateStr)
 
+// 5.3 自定义 transform: Schema.decodeTo + SchemaGetter.transform
+// 创建自定义的类型转换 — 例如: 清理字符串空白
+console.log("\n5.3 自定义 transform (decodeTo):")
+
+const TrimmedString = Schema.String.pipe(
+  Schema.decodeTo(Schema.String, {
+    decode: SchemaGetter.transform((s: string) => s.trim()),
+    encode: SchemaGetter.transform((s: string) => s.trim()),
+  })
+)
+
+const trimmed = Schema.decodeUnknownSync(TrimmedString)("  hello world  ")
+console.log("  解码 '  hello world  ' →", `'${trimmed}'`)
+
+const reEncoded = Schema.encodeSync(TrimmedString)(trimmed)
+console.log("  编码 'hello world' →", `'${reEncoded}'`)
+
 // ============================================================
-// 6. Schema.decodeUnknown — Effect 版本（异步解码）
+// 6. Schema.decodeUnknownEffect — Effect 版本（异步解码）
 // ============================================================
-// decodeUnknown 返回 Effect，支持异步校验场景。
+// decodeUnknownEffect 返回 Effect，支持异步校验场景。
 // 这里演示同步使用，但 API 设计支持异步。
 
 import { Effect } from "effect"
 
-console.log("\n--- 6. Schema.decodeUnknown (Effect 版本) ---")
+console.log("\n--- 6. Schema.decodeUnknownEffect (Effect 版本) ---")
 
 const program = Effect.gen(function* () {
   const raw: unknown = JSON.parse('{"name":"Alice","age":30}')
-  const user = yield* Schema.decodeUnknown(SimpleSchema)(raw)
+  const user = yield* Schema.decodeUnknownEffect(SimpleSchema)(raw)
   return user
 })
 
@@ -199,9 +192,9 @@ console.log("├─────────────────────�
 console.log("│ Schema.decodeUnknownSync │ unknown → Type (同步)          │")
 console.log("│ Schema.decodeSync        │ Encoded → Type (同步)          │")
 console.log("│ Schema.encodeSync        │ Type → Encoded (同步)          │")
-console.log("│ Schema.decodeUnknown     │ unknown → Type (Effect/异步)   │")
-console.log("│ Schema.encodeUnknown     │ Type → Encoded (Effect/异步)  │")
-console.log("│ Schema.compose           │ 类型转换 (A ↔ B)              │")
+console.log("│ Schema.decodeUnknownEffect│ unknown → Type (Effect/异步)   │")
+console.log("│ Schema.encodeUnknownEffect│ Type → Encoded (Effect/异步)  │")
+console.log("│ Schema.decodeTo          │ 类型转换 (A ↔ B)              │")
 console.log("│ Schema.Schema.Type       │ 提取 TypeScript 类型          │")
 console.log("│ Schema.Codec.Encoded     │ 提取编码类型                   │")
 console.log("└──────────────────────────┴─────────────────────────────────┘")
@@ -210,4 +203,4 @@ console.log("  - Type 是业务逻辑使用的类型，Encoded 是序列化/传�
 console.log("  - 简单 Schema 的 Type === Encoded")
 console.log("  - 带 transform 的 Schema 的 Type !== Encoded")
 console.log("  - JSON 往返: JSON → unknown → decode → Type → encode → Encoded → JSON")
-console.log("  - Schema.compose 实现自定义类型转换（如字符串↔数字、字符串↔日期）")
+console.log("  - Schema.decodeTo + SchemaGetter.transform 实现自定义类型转换")
