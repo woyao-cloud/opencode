@@ -1,0 +1,11 @@
+{
+  "name": "miniopencode",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run packages/opencode/src/index.ts",
+    "typecheck": "bun run --filter '@miniopencode/*' typecheck",
+    "test": "bun run --filter '@miniopencode/*' test"
+  },
+  "workspaces": ["packages/*"]
+}

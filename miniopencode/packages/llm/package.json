@@ -1,0 +1,22 @@
+{
+  "name": "@miniopencode/llm",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test"
+  },
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65",
+    "@miniopencode/core": "workspace:*",
+    "ai": "6.0.168",
+    "@ai-sdk/openai": "3.0.53"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "1.0.9",
+    "@types/bun": "1.3.12"
+  }
+}
