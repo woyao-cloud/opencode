@@ -2,15 +2,22 @@ import { Effect } from "effect"
 import * as Log from "@miniopencode/core/util/log"
 import { generateText, streamText } from "ai"
 import { createOpenAI } from "@ai-sdk/openai"
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible"
 import { ModelRef, type Message } from "./schema/messages"
 
 const log = Log.create({ service: "llm" })
 
 function resolveModel(model: ModelRef) {
-  const apiKey = model.apiKey ?? process.env.OPENAI_API_KEY
+  const apiKey = model.apiKey ?? process.env.OPENAI_API_KEY ?? process.env.MINICODE_API_KEY
   const baseURL = model.baseURL ?? "https://api.openai.com/v1"
+
+  if (model.providerID === "openai-compatible" || model.baseURL) {
+    const client = createOpenAICompatible({ name: "miniopencode", apiKey, baseURL })
+    return client.chatModel(model.modelID as string) as any
+  }
+
   const openai = createOpenAI({ apiKey, baseURL })
-  return openai(model.modelID as string)
+  return openai(model.modelID as string) as any
 }
 
 function toCoreMessages(messages: ReadonlyArray<Message>): any[] {
@@ -65,7 +72,7 @@ export function stream(input: {
     const model = resolveModel(input.model)
     const messages = toCoreMessages([...input.messages])
     const result = streamText({
-      model,
+      model: model as any,
       messages,
       ...(input.system ? { system: input.system } : {}),
       ...(input.tools ? { tools: input.tools } : {}),

@@ -3,6 +3,7 @@ import * as Log from "@miniopencode/core/util/log"
 import { Global } from "@miniopencode/core/global"
 import { Env } from "@/env"
 import { InstanceRef, WorkspaceRef } from "@/effect/instance-ref"
+import { InstanceLayer } from "@/project/bootstrap"
 
 const log = Log.create({ service: "bootstrap" })
 
@@ -10,7 +11,7 @@ const refLayer = Layer.succeed(InstanceRef as any, { directory: process.cwd(), w
 const wsLayer = Layer.succeed(WorkspaceRef as any, "/" as any)
 const allRefs = Layer.mergeAll(refLayer as any, wsLayer as any)
 
-export const AppLayer = allRefs as Layer.Layer<any>
+export const AppLayer = Layer.mergeAll(allRefs as any, InstanceLayer as any) as Layer.Layer<any>
 const rt = ManagedRuntime.make(AppLayer as any)
 
 export const AppRuntime = {
