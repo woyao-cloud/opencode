@@ -1,0 +1,14 @@
+{
+  "name": "ch02-effect-basics",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:types": "bun run src/01-effect-types.ts",
+    "demo:pipe": "bun run src/02-pipe-and-flow.ts",
+    "demo:gen": "bun run src/03-generator-syntax.ts",
+    "demo:run": "bun run src/04-running-effects.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
