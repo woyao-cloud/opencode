@@ -103,14 +103,17 @@ console.log("\n=== 3. Standard Schema V1 兼容 ===")
 
 // toStandardSchemaV1 将 Effect Schema 转为符合 Standard Schema 规范的格式，
 // 以便与其他兼容该规范的库（如 Zod、Valibot 等）互操作。
+// 返回的 schema 对象上有一个 "~standard" 属性包含标准接口。
 
 const standardSchema = Schema.toStandardSchemaV1(UserSchema)
-console.log("Standard Schema 版本:", standardSchema.version)
-console.log("Standard Schema 厂商:", standardSchema.vendor)
-console.log("Standard Schema 类型:", typeof standardSchema.validate)
+// 通过 "~standard" 属性访问标准接口
+const stdInterface = (standardSchema as any)["~standard"]
+console.log("Standard Schema 版本:", stdInterface.version)
+console.log("Standard Schema 厂商:", stdInterface.vendor)
+console.log("Standard Schema validate 类型:", typeof stdInterface.validate)
 
 // 使用 Standard Schema 接口进行校验
-const stdResult = standardSchema.validate({
+const stdResult = stdInterface.validate({
   name: "李四",
   age: 30,
   email: "lisi@example.com",
@@ -120,7 +123,7 @@ const stdResult = standardSchema.validate({
 console.log("Standard Schema 校验结果:", stdResult)
 
 // 非法数据也会被拒绝
-const stdFail = standardSchema.validate({
+const stdFail = stdInterface.validate({
   name: "王五",
   age: -1,  // 非法年龄
   email: "wangwu@example.com",
@@ -170,7 +173,7 @@ function processOrder(raw: unknown): Order {
 
 // 3. 序列化
 function serializeOrder(order: Order): string {
-  return JSON.stringify(Schema.encodeSync(OrderSchema)(order))
+  return JSON.stringify(Schema.encodeUnknownSync(OrderSchema)(order))
 }
 
 // 4. 数据清洗（自定义逻辑 + Schema 校验）

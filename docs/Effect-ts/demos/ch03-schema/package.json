@@ -1,0 +1,14 @@
+﻿{
+  "name": "ch03-schema",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:struct": "bun run src/01-basic-struct.ts",
+    "demo:class": "bun run src/02-class-and-tag.ts",
+    "demo:encode": "bun run src/03-encode-decode.ts",
+    "demo:types": "bun run src/04-type-inference.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}

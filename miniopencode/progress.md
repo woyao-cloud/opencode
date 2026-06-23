@@ -37,3 +37,18 @@
 }
 之后直接 miniopencode run -p "你的问题" 
 即可，不再需要传 --base-url
+
+
+# workwell on 火山plan
+
+bun run packages/opencode/src/index.ts run -p "hello"
+2026-06-23T14:31:34.481Z [INFO] [bootstrap] miniopencode initialized {"home":"C:\\Users\\laido\\AppData\\Roaming\\miniopencode"}
+2026-06-23T14:31:34.483Z [INFO] [provider] resolve {"provider":"volces","model":"glm-5.1:cloud","baseURL":"https://ark.cn-beijing.volces.com/api/coding/v3"}
+2026-06-23T14:31:34.484Z [INFO] [cli.run] calling LLM {"model":"glm-5.1:cloud","prompt":"hello"}
+2026-06-23T14:31:34.485Z [INFO] [llm] generate {"model":"glm-5.1:cloud","messages":1}
+AI SDK Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false.
+AI SDK Warning (miniopencode.chat / glm-5.1:cloud): The feature "specificationVersion" is used in a compatibility mode. Using v2 specification compatibility mode. Some features may not be available.
+'pwd' is not recognized as an internal or external command,
+operable program or batch file.
+2026-06-23T14:31:36.453Z [INFO] [llm] generate done {"length":39}
+Hello! Let me explore what we have here
