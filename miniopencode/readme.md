@@ -13,3 +13,9 @@ minicode run -p "规划一个贪吃蛇游戏" --base-url https://ollama.com/v1
 系统正常工作——CLI 解析参数、调用 LLM、错误传播都正确。只是 API key 无效导致 LLM 调用失败。用有效 key 即可：
 set OPENAI_API_KEY=<你的key>
 bun run packages/opencode/src/index.ts run -p "hello"
+
+bun run packages/opencode/src/index.ts run -i
+
+
+Debug: Javascript Debug Terminal
+bun run packages/opencode/src/index.ts run -i

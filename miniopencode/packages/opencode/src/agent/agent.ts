@@ -22,7 +22,7 @@ export function makeAgent(agentConfig: MiniOpenCodeConfig["agent"]): AgentShape 
 
   const makeDefault = (id: string): AgentInfo => ({
     id,
-    model: "gpt-4o-mini",
+    model: "glm-5.1",
     system: "You are a helpful assistant.",
     permissions: ["allow:*"],
   })
@@ -34,7 +34,7 @@ export function makeAgent(agentConfig: MiniOpenCodeConfig["agent"]): AgentShape 
       if (!entry) return Effect.succeed(makeDefault(agentId))
       return Effect.succeed({
         id: agentId,
-        model: entry.model ?? "gpt-4o-mini",
+        model: entry.model ?? "glm-5.1",
         system: entry.system ?? "You are a helpful assistant.",
         permissions: entry.permissions ?? ["allow:*"],
       } as AgentInfo)
@@ -45,7 +45,7 @@ export function makeAgent(agentConfig: MiniOpenCodeConfig["agent"]): AgentShape 
       if (entry) {
         return Effect.succeed({
           id: defaultId,
-          model: entry.model ?? "gpt-4o-mini",
+          model: entry.model ?? "glm-5.1",
           system: entry.system ?? "You are a helpful assistant.",
           permissions: entry.permissions ?? ["allow:*"],
         } as AgentInfo)

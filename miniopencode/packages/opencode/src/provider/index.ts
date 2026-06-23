@@ -8,7 +8,7 @@ const log = Log.create({ service: "provider" })
 // ── Defaults ───────────────────────────────────────────────
 
 export const DEFAULT_PROVIDER = "openai"
-export const DEFAULT_MODEL = "gpt-4o-mini"
+export const DEFAULT_MODEL = "glm-5.1"
 
 // ── Service Interface ──────────────────────────────────────
 
