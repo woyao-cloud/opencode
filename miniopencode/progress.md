@@ -141,3 +141,66 @@ permission_rules_json 之前只在 TypeScript SessionRow 类型中有，现在 D
 未改动（已满足需求）
 - wildcard.ts、arity.ts、permission/schema.ts、bus/bus-event.ts（权限事件）、agent/agent.ts（内置 agent 已有权限规则）— 这些文件原本已经实现完整，未做更改。
 验证：三个包（core、llm、opencode）bun typecheck 通过（exit 0），CLI --help 正常启动。
+
+
+#
+
+已完成的 Phase
+| Phase | 迭代 | 完成度 | 说明 |
+|---|---|---|---|
+| 0 脚手架 | 1-10 | 100% | 三个包结构、tsconfig、core 工具函数 |
+| 1 最小 LLM 调用 | 11-30 | 100% | 消息 schema、OpenAI provider、LLM.generate/stream、effect 运行时、CLI 入口 |
+| 2 配置与权限 | 31-50 | 100% | ConfigService、permission schema/Rule/evaluate/arity、AgentService、agent prompts、plugin/skill 骨架 |
+| 3 工具系统 | 51-70 | 100% | tool/tool.ts (Def/Info/define)、read、write、bash、glob、grep、registry、truncate、json-schema |
+| 4 Session 系统 | 71-110 | ~65% | 核心已有（schema、session CRUD、db SQLite、bus event/PubSub）。缺：message-v2.ts、status.ts、run-state.ts、serve 命令 |
+| 5 Prompt 引擎 | 111-140 | 100% | PromptService（核心循环）、LlmService、system prompt、instruction，集成到 run.ts |
+| 6 SubAgent 系统 | 141-170 | ~55% | task tool 基础、subagent-permissions、background/job。缺：TaskPromptOps 集成、后台结果注入 |
+| 7 权限与安全 | 171-200 | ~70% | ✅ permission arity + wildcard + evaluate chain + 持久化 + tool 执行检查 + prompt 层拦截。缺：ask/reply UI、权限事件完整流程 |
+未开始的 Phase
+| Phase | 迭代 | 说明 |
+|---|---|---|
+| 8 配置完善 | 201-230 | config 多文件/合并/markdown/mcp/lsp 等 12+ 子模块 |
+| 9 Provider 系统 | 231-260 | 多 provider（Anthropic/Gemini/Azure）、协议层、路由、缓存、auth |
+| 10 存储系统 | 261-290 | Storage Service、drizzle 完整、数据迁移、快照 |
+| 11 文件系统 & Git | 291-320 | file 完善、git diff/commit/branch、LSP、edit/apply_patch 工具 |
+| 12 高级会话 | 321-360 | compaction、retry、revert、todo、summary、overflow |
+| 13 工具完善 | 361-400 | webfetch、websearch、question、skill、plan 等 14+ 工具 |
+| 14 高级功能 | 401-450 | MCP、ACP、Reference、PTY、image、auth |
+| 15 生产化 | 451-500 | sync、share、TUI、测试、CI/CD |
+整体进度
+Phase 0 ████████████████ 100%
+Phase 1 ████████████████ 100%
+Phase 2 ████████████████ 100%
+Phase 3 ████████████████ 100%
+Phase 4 ███████████░░░░░ ~65%
+Phase 5 ████████████████ 100%
+Phase 6 █████████░░░░░░░ ~55%
+Phase 7 ████████████░░░░ ~70%
+Phase 8 ░░░░░░░░░░░░░░░░  0%
+...
+关键数据
+- 源文件：core 7 + llm 10 + opencode 56 = 73 个
+- 有效工具：read、write、bash、glob、grep、task（共 6 个）
+- 已实现迭代：约 185 / 500（37%）
+- 对应里程碑：刚刚完成 Phase 7（权限系统核心）
+下一步推荐方向
+按你的学习目标，接下来可以有几种选法：
+1. 补齐 Phase 4 → 做 message-v2.ts + status.ts + run-state.ts，让 session 系统更完整
+2. 加实际工具 → 跳到 Phase 13 做 webfetch/websearch/question 等，让 agent 能上网
+3. 加多 provider → Phase 9 做 Anthropic/Gemini provider，切换不同模型
+4. 做存储系统 → Phase 10 做 drizzle 完整迁移、快照
+
+# Phase 4 新增/修改的完整清单：
+| 文件 | 说明 |
+|---|---|
+| session/status.ts | 新建 — SessionStatus 服务，InstanceState 存储，Bus 事件发布 |
+| session/run-state.ts | 新建 — SessionRunState 服务，SynchronizedRef 防并发 |
+| session/message-v2.ts | 新建 — 基于 Part 的富消息模型（6 种 Part 类型），WithParts，序列化 |
+| server/index.ts | 新建 — Bun.serve() HTTP 服务，REST API（sessions CRUD + prompt + health） |
+| cli/cmd/serve.ts | 新建 — serve CLI 命令 |
+| bus/bus-event.ts | 修改 — 新增 SessionStatusChanged 事件 |
+| session/prompt.ts | 修改 — 集成 SessionRunState（acquire/release 防并发）+ promptOps 入 PromptInput |
+| project/bootstrap.ts | 修改 — InstanceLayer 加入 SessionStatusLive + SessionRunStateLive |
+| session/index.ts | 修改 — 导出所有新服务 |
+| index.ts | 修改 — 注册 serve 命令 |
+Phase 4 进度：~65% → ~95% —— 还剩验证步骤（迭代 83, 91-100）

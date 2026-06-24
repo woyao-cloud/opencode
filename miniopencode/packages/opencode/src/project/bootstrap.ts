@@ -6,7 +6,7 @@ import { ProjectService, makeProject, makeProjectLive } from "./project"
 import { ToolRuntimeService, makeRuntime } from "@/tool/tool"
 import { ReadTool, WriteTool, BashTool, GlobTool, GrepTool } from "@/tool"
 import { ProviderService, makeProvider, type ProviderShape, ProviderLive } from "@/provider/index"
-import { SessionLive, LlmLive, PromptLive } from "@/session/index"
+import { SessionLive, SessionStatusLive, SessionRunStateLive, LlmLive, PromptLive } from "@/session/index"
 import { BusLive } from "@/bus/index"
 import { BackgroundJobLive } from "@/background/job"
 
@@ -44,6 +44,10 @@ const permissionLayer = Layer.provide(PermissionLive, permissionDeps)
 const projectDeps = Layer.mergeAll(configLayer, agentLayer, permissionLayer)
 const projectLayer = Layer.provide(makeProjectLive(dir), projectDeps)
 
+// 6. Session status + run state — depend on BusService and each other
+const sessionStatusLayer = Layer.provide(SessionStatusLive, BusLive)
+const sessionRunStateLayer = Layer.provide(SessionRunStateLive, sessionStatusLayer)
+
 // Merge all layers into one. Layers with satisfied requirements resolve cleanly.
 export const InstanceLayer = Layer.mergeAll(
   configLayer,
@@ -53,6 +57,8 @@ export const InstanceLayer = Layer.mergeAll(
   permissionLayer,
   projectLayer,
   sessionLayer,
+  sessionStatusLayer,
+  sessionRunStateLayer,
   LlmLive,
   PromptLive,
   BackgroundJobLive,

@@ -12,6 +12,9 @@ import { LlmService, type ToolStepEntry } from "./llm"
 import { buildSystemPrompt, type SystemPromptOptions } from "./system"
 import { buildInstructions } from "./instruction"
 import { checkToolPermission } from "@/permission/evaluate"
+import { SessionRunStateService } from "./run-state"
+import { SessionStatusService } from "./status"
+import type { TaskPromptOps } from "@/tool/task"
 
 const log = Log.create({ service: "session.prompt" })
 
@@ -24,6 +27,7 @@ export interface PromptInput {
   readonly tools: Record<string, unknown>
   readonly instructions?: ReadonlyArray<string>
   readonly signal?: AbortSignal
+  readonly promptOps?: TaskPromptOps
 }
 
 export interface PromptOutput {
@@ -35,7 +39,7 @@ export interface PromptOutput {
 // ── Service Interface ───────────────────────────────────────
 
 export interface PromptShape {
-  readonly prompt: (input: PromptInput) => Effect.Effect<PromptOutput, Error, SessionService | AgentService | LlmService>
+  readonly prompt: (input: PromptInput) => Effect.Effect<PromptOutput, Error, SessionService | AgentService | LlmService | SessionRunStateService | SessionStatusService>
 }
 
 export class PromptService extends Context.Service<PromptService, PromptShape>()("@miniopencode/Prompt") {}
@@ -100,89 +104,143 @@ function wrapToolsWithPermissionCheck(
 // ── Factory ─────────────────────────────────────────────────
 
 export function makePromptService(): PromptShape {
-  const prompt = (input: PromptInput): Effect.Effect<PromptOutput, Error, SessionService | AgentService | LlmService> =>
+  const prompt = (input: PromptInput): Effect.Effect<PromptOutput, Error, SessionService | AgentService | LlmService | SessionRunStateService | SessionStatusService> =>
     Effect.gen(function* () {
       const session = yield* SessionService
       const agent = yield* AgentService
       const llm = yield* LlmService
+      const runState = yield* SessionRunStateService
+      const statusService = yield* SessionStatusService
 
-      // 1. Get agent info for system prompt
-      const agentInfo = yield* agent.defaultAgent()
-      log.debug("agent info", { id: agentInfo.id, hasSystem: !!agentInfo.system })
+      // 0. Check if session is already busy — fail fast to prevent concurrent runs
+      const busy = yield* runState.isBusy(input.sessionId)
+      if (busy) {
+        return yield* Effect.fail(new Error(`Session ${input.sessionId} is busy`))
+      }
 
-      // 2. Get existing messages from the session
-      const existingMessages = yield* session.getMessages(input.sessionId)
+      // Mark as busy in run state
+      yield* runState.acquire(input.sessionId).pipe(Effect.ignore)
 
-      // 3. Build system prompt
-      const toolKeys = Object.keys(input.tools)
-      const systemPrompt = resolveSystemPrompt(
-        { system: agentInfo.system, permissions: agentInfo.permissions as string[] },
-        input.instructions,
-        toolKeys,
-      )
+      // Run the prompt work, ensuring release always fires
+      const work = Effect.gen(function* () {
+        // 1. Get agent info for system prompt
+        const agentInfo = yield* agent.defaultAgent()
+        log.debug("agent info", { id: agentInfo.id, hasSystem: !!agentInfo.system })
 
-      // 4. Persist user message
-      yield* session.appendMessage(input.sessionId, {
-        role: "user",
-        content: input.userInput,
-      })
+        // 2. Set session status to busy
+        yield* statusService.set(input.sessionId, { type: "busy" })
 
-      // 5. Build full message list for the LLM
-      const llmMessages: Array<{ role: string; content: string }> = [
-        ...existingMessages.map(toLlmMessage),
-        { role: "user", content: input.userInput },
-      ]
+        // 3. Get existing messages from the session
+        const existingMessages = yield* session.getMessages(input.sessionId)
 
-      // 6. Wrap tools with permission check, then call the LLM
-      const permissionCheckedTools = agentInfo.permissions?.length
-        ? wrapToolsWithPermissionCheck(input.tools, agentInfo.permissions as string[])
-        : input.tools
+        // 4. Build system prompt
+        const toolKeys = Object.keys(input.tools)
+        const systemPrompt = resolveSystemPrompt(
+          { system: agentInfo.system, permissions: agentInfo.permissions as string[] },
+          input.instructions,
+          toolKeys,
+        )
 
-      const result = yield* llm.generate({
-        model: input.model,
-        system: systemPrompt,
-        messages: llmMessages as any,
-        tools: permissionCheckedTools as Record<string, unknown>,
-      })
+        // 5. Persist user message
+        yield* session.appendMessage(input.sessionId, {
+          role: "user",
+          content: input.userInput,
+        })
 
-      // 7. Persist each tool step (call + result pair)
-      for (const step of result.toolSteps) {
+        // 6. Build full message list for the LLM
+        const llmMessages: Array<{ role: string; content: string }> = [
+          ...existingMessages.map(toLlmMessage),
+          { role: "user", content: input.userInput },
+        ]
+
+        // 7. Wrap tools with context (promptOps) and permission check
+        let finalTools = input.tools
+        if (input.promptOps) {
+          finalTools = wrapToolsWithContext(finalTools, input.promptOps)
+        }
+        if (agentInfo.permissions?.length) {
+          finalTools = wrapToolsWithPermissionCheck(finalTools, agentInfo.permissions as string[])
+        }
+
+        // 8. Call the LLM
+        const result = yield* llm.generate({
+          model: input.model,
+          system: systemPrompt,
+          messages: llmMessages as any,
+          tools: finalTools as Record<string, unknown>,
+        })
+
+        // 9. Persist each tool step (call + result pair)
+        for (const step of result.toolSteps) {
+          yield* session.appendMessage(input.sessionId, {
+            role: "assistant",
+            content: JSON.stringify({ tool: step.name, args: step.args }),
+            toolName: step.name,
+            toolArgs: step.args,
+          })
+          yield* session.appendMessage(input.sessionId, {
+            role: "tool",
+            content: step.result,
+            toolName: step.name,
+          })
+        }
+
+        // 10. Persist final assistant response
         yield* session.appendMessage(input.sessionId, {
           role: "assistant",
-          content: JSON.stringify({ tool: step.name, args: step.args }),
-          toolName: step.name,
-          toolArgs: step.args,
+          content: result.text,
         })
-        yield* session.appendMessage(input.sessionId, {
-          role: "tool",
-          content: step.result,
-          toolName: step.name,
-        })
-      }
 
-      // 8. Persist final assistant response
-      yield* session.appendMessage(input.sessionId, {
-        role: "assistant",
-        content: result.text,
+        log.info("prompt complete", {
+          sessionId: input.sessionId,
+          textLen: result.text.length,
+          toolSteps: result.toolSteps.length,
+        })
+
+        return {
+          text: result.text,
+          usage: result.usage,
+          toolSteps: result.toolSteps,
+        }
       })
 
-      // 9. Update session status to idle
-      yield* session.updateStatus(input.sessionId, "idle")
-
-      log.info("prompt complete", {
-        sessionId: input.sessionId,
-        textLen: result.text.length,
-        toolSteps: result.toolSteps.length,
-      })
-
-      return {
-        text: result.text,
-        usage: result.usage,
-        toolSteps: result.toolSteps,
-      }
+      return yield* work.pipe(
+        Effect.ensuring(
+          runState.release(input.sessionId).pipe(Effect.ignore),
+        ),
+      )
     })
 
   return { prompt }
+}
+
+/**
+ * Wrap tools so the task tool's execute function receives promptOps
+ * via the tool's closure context. This allows the task tool to recursively
+ * call the prompt engine for subagent execution.
+ */
+function wrapToolsWithContext(
+  tools: Record<string, unknown>,
+  promptOps: TaskPromptOps,
+): Record<string, unknown> {
+  const wrapped: Record<string, any> = {}
+  for (const [name, tool] of Object.entries(tools)) {
+    const t = tool as any
+    if (name !== "task" || typeof t.execute !== "function") {
+      wrapped[name] = tool
+      continue
+    }
+    const originalExecute = t.execute.bind(t)
+    wrapped[name] = {
+      ...t,
+      execute: async (args: any) => {
+        // Inject promptOps into the args so the task tool can use it
+        const enrichedArgs = { ...args, _promptOps: promptOps }
+        return originalExecute(enrichedArgs)
+      },
+    }
+  }
+  return wrapped
 }
 
 // ── Layer ───────────────────────────────────────────────────

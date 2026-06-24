@@ -4,6 +4,7 @@ import * as Log from "@miniopencode/core/util/log"
 import { InstallationVersion } from "@miniopencode/core/installation/version"
 import { runCommand } from "./cli/cmd/run"
 import { sessionListCommand, sessionGetCommand, sessionDeleteCommand } from "./cli/cmd/session"
+import { serveCommand } from "./cli/cmd/serve"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", { e: e instanceof Error ? e.message : String(e) })
@@ -81,6 +82,25 @@ yargs(args)
             })
           },
         ),
+  )
+  .command(
+    "serve",
+    "Start HTTP server with session API",
+    (y) =>
+      y
+        .option("port", { type: "number", describe: "port to listen on", default: 8080 })
+        .option("host", { type: "string", describe: "host to bind to", default: "127.0.0.1" })
+        .option("model", { type: "string", describe: "model id for prompts" }),
+    (argv) => {
+      serveCommand({
+        port: argv.port as number,
+        host: argv.host as string,
+        model: argv.model as string | undefined,
+      }).catch((e) => {
+        console.error("Error:", e instanceof Error ? e.message : String(e))
+        process.exit(1)
+      })
+    },
   )
   .demandCommand(1)
   .strict()

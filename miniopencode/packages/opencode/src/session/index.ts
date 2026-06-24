@@ -7,3 +7,8 @@ export type { LlmShape, LlmGenerateInput, LlmGenerateOutput, ToolStepEntry } fro
 export { buildSystemPrompt } from "./system"
 export type { SystemPromptOptions } from "./system"
 export { buildInstructions, DEFAULT_INSTRUCTIONS } from "./instruction"
+export { SessionStatusService, SessionStatusLive, makeSessionStatus } from "./status"
+export type { SessionStatusShape, Info as SessionStatusInfo } from "./status"
+export { SessionRunStateService, SessionRunStateLive, makeSessionRunState, SessionBusyError } from "./run-state"
+export type { SessionRunStateShape } from "./run-state"
+export * as MessageV2 from "./message-v2"

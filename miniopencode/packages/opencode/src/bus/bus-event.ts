@@ -20,6 +20,11 @@ export const SessionCreated = define("session:created", Schema.Struct({ id: Sche
 export const SessionUpdated = define("session:updated", Schema.Struct({ id: Schema.String, status: Schema.String }))
 export const SessionDeleted = define("session:deleted", Schema.Struct({ id: Schema.String }))
 export const MessageAdded = define("message:added", Schema.Struct({ sessionId: Schema.String, messageId: Schema.String }))
+export const SessionStatusChanged = define("session:status:changed", Schema.Struct({
+  sessionId: Schema.String,
+  status: Schema.String,
+  detail: Schema.optional(Schema.String),
+}))
 
 // ── Background Task Events ──────────────────────────────────
 
