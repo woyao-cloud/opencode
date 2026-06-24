@@ -1,0 +1,15 @@
+{
+  "name": "ch15-performance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:overhead": "bun run src/01-overhead-analysis.ts",
+    "demo:fiber": "bun run src/02-fiber-scheduling.ts",
+    "demo:cache": "bun run src/03-cache-strategy.ts",
+    "demo:stream": "bun run src/04-stream-tuning.ts",
+    "demo:benchmark": "bun run src/05-benchmark.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
