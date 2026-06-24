@@ -1,0 +1,15 @@
+{
+  "name": "ch16-memory",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:closure": "bun run src/01-closure-chains.ts",
+    "demo:scope": "bun run src/02-scope-release.ts",
+    "demo:fiber": "bun run src/03-fiber-leak.ts",
+    "demo:stream": "bun run src/04-stream-buffer.ts",
+    "demo:layer": "bun run src/05-layer-lifecycle.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
