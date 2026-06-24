@@ -1,7 +1,9 @@
 /**
  * 02-scope-fork.ts — Scope.fork 子作用域
  *
- * Scope.fork 在父 Scope 内创建一个子 Scope。
+ * Scope.fork(scope, strategy?) 在当前 Scope 内创建一个子 Scope（Closeable）。
+ * 通过 Scope.use(childScope)(effect) 在子 Scope 中执行 Effect。
+ *
  * 子 Scope 可以独立关闭，不影响父 Scope。
  * 当父 Scope 关闭时，所有子 Scope 也会被级联关闭。
  *
@@ -47,16 +49,26 @@ const makeResource = (label: string): Effect.Effect<
  * 在父 Scope 中 fork 一个子 Scope。
  * 子 Scope 中的资源在子 Scope 关闭时释放，
  * 父 Scope 中的资源不受影响。
+ *
+ * API 说明：
+ * - Scope.fork(scope, strategy?): Effect<Closeable> 创建子 Scope
+ * - Scope.use(childScope)(effect): Effect<...> 在子 Scope 中执行 effect
  */
 const program1 = Effect.scoped(
   Effect.gen(function* () {
     Console.log("=== 场景 1: 子 Scope 独立生命周期 ===")
 
+    // 获取当前 Scope（从 Context 中）
+    const scope = yield* Scope.Scope
+
     // 在父 Scope 中创建资源
     const parentResource = yield* makeResource("父级资源")
 
-    // 使用 Scope.fork 创建子 Scope 并执行任务
-    yield* Scope.fork(
+    // 使用 Scope.fork 创建子 Scope
+    const childScope = yield* Scope.fork(scope)
+
+    // 在子 Scope 中执行任务
+    yield* Scope.use(childScope)(
       Effect.gen(function* () {
         const childResource = yield* makeResource("子级资源")
         const result = yield* childResource.doWork()
@@ -85,11 +97,14 @@ const program2 = Effect.scoped(
   Effect.gen(function* () {
     Console.log("\n=== 场景 2: 子 Scope 错误隔离 ===")
 
+    const scope = yield* Scope.Scope
     const parentResource = yield* makeResource("父级资源")
 
-    // 使用 Effect.either 捕获子 Scope 的结果（成功或失败）
-    const childResult = yield* Effect.either(
-      Scope.fork(
+    const childScope = yield* Scope.fork(scope)
+
+    // 使用 Effect.exit 捕获子 Scope 的退出状态（成功或失败）
+    const childExit = yield* Effect.exit(
+      Scope.use(childScope)(
         Effect.gen(function* () {
           const childResource = yield* makeResource("子级资源")
           Console.log("子 Scope: 即将失败...")
@@ -98,10 +113,12 @@ const program2 = Effect.scoped(
       ),
     )
 
-    // 检查子 Scope 的结果
-    if (childResult._tag === "Left") {
-      Console.log(`父 Scope: 捕获子 Scope 错误: ${childResult.left.message}`)
-    }
+    // 使用 Exit.match 模式匹配处理成功/失败
+    const msg = Exit.match(childExit, {
+      onSuccess: () => "子 Scope: 成功完成",
+      onFailure: (_cause) => "子 Scope: 执行失败",
+    })
+    Console.log(`父 Scope: ${msg}`)
 
     const result = yield* parentResource.doWork()
     Console.log(`父 Scope: ${result}`)
@@ -122,12 +139,17 @@ const program3 = Effect.scoped(
   Effect.gen(function* () {
     Console.log("\n=== 场景 3: 嵌套子 Scope ===")
 
-    yield* Scope.fork(
+    const scope = yield* Scope.Scope
+    const outerChild = yield* Scope.fork(scope)
+
+    yield* Scope.use(outerChild)(
       Effect.gen(function* () {
         const outerResource = yield* makeResource("外层资源")
 
-        // 在内层再 fork 一个子 Scope
-        yield* Scope.fork(
+        // 在外层子 Scope 中再 fork 一个内层子 Scope
+        const innerChild = yield* Scope.fork(outerChild)
+
+        yield* Scope.use(innerChild)(
           Effect.gen(function* () {
             const innerResource = yield* makeResource("内层资源")
             const result = yield* innerResource.doWork()

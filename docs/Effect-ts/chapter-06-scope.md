@@ -76,10 +76,11 @@ const program = Effect.scoped(
 | API | 类型签名 | 说明 |
 |-----|---------|------|
 | `Effect.acquireRelease` | `(acquire, release) => Effect<Scope \| R, E, A>` | 创建受 Scope 管理的资源 |
-| `Scope.fork` | `(effect) => Effect<R, E, A>` | 在子 Scope 中执行 Effect |
-| `Effect.addFinalizer` | `(finalizer) => Effect<R, never, void>` | 向当前 Scope 注册清理函数 |
-| `Effect.scoped` | `(effect) => Effect<R, E, A>` | 提供 Scope 并移除 Scope 依赖 |
-| `Scope.make` | `Effect<Scope.Scope>` | 手动创建 Scope |
+| `Scope.fork` | `(scope, strategy?) => Effect<Closeable>` | 从父 Scope 创建子 Scope |
+| `Scope.use` | `(childScope) => (effect) => Effect` | 在子 Scope 中执行 Effect |
+| `Effect.addFinalizer` | `(exit => Effect) => Effect<never, void, R\|Scope>` | 向当前 Scope 注册清理函数 |
+| `Effect.scoped` | `(effect) => Effect<Exclude<R, Scope>, E, A>` | 提供 Scope 并移除 Scope 依赖 |
+| `Scope.make` | `(strategy?) => Effect<Closeable>` | 手动创建 Scope |
 | `Scope.close` | `(scope, exit) => Effect<void>` | 手动关闭 Scope |
 
 ---
@@ -180,16 +181,26 @@ const program = Effect.scoped(
 
 ### 4.2 基本用法
 
+在 beta.65 中，`Scope.fork` 分两步使用：
+1. `Scope.fork(scope)` 从当前 Scope 创建一个子 Scope（Closeable）
+2. `Scope.use(childScope)(effect)` 在子 Scope 中执行 Effect
+
 ```typescript
 import { Effect, Console, Scope } from "effect"
 
 const program = Effect.scoped(
   Effect.gen(function* () {
+    // 获取当前 Scope
+    const scope = yield* Scope.Scope
+
     // 父 Scope 中的资源
     const parentResource = yield* makeResource("父级")
 
-    // 在子 Scope 中执行任务
-    yield* Scope.fork(
+    // 步骤 1: 创建子 Scope
+    const childScope = yield* Scope.fork(scope)
+
+    // 步骤 2: 在子 Scope 中执行任务
+    yield* Scope.use(childScope)(
       Effect.gen(function* () {
         const childResource = yield* makeResource("子级")
         // ... 使用子资源 ...
@@ -210,11 +221,14 @@ const program = Effect.scoped(
 ```typescript
 const program = Effect.scoped(
   Effect.gen(function* () {
+    const scope = yield* Scope.Scope
     const parentResource = yield* makeResource("父级")
 
-    // 使用 Effect.either 捕获子 Scope 的结果
-    const result = yield* Effect.either(
-      Scope.fork(
+    const childScope = yield* Scope.fork(scope)
+
+    // 使用 Effect.exit 捕获子 Scope 的退出状态
+    const childExit = yield* Effect.exit(
+      Scope.use(childScope)(
         Effect.gen(function* () {
           yield* makeResource("子级")
           yield* Effect.fail(new Error("子任务失败"))
@@ -222,9 +236,12 @@ const program = Effect.scoped(
       ),
     )
 
-    if (result._tag === "Left") {
-      Console.log(`子 Scope 失败: ${result.left.message}`)
-    }
+    // 使用 Exit.match 模式匹配成功/失败
+    const msg = Exit.match(childExit, {
+      onSuccess: () => "子 Scope: 成功完成",
+      onFailure: (_cause) => "子 Scope: 执行失败",
+    })
+    Console.log(`父 Scope: ${msg}`)
 
     // 父 Scope 不受影响，继续执行
     yield* parentResource.doWork()
@@ -237,11 +254,17 @@ const program = Effect.scoped(
 可以创建多层嵌套的子 Scope，每一层独立管理自己的资源：
 
 ```typescript
-yield* Scope.fork(
+const scope = yield* Scope.Scope
+const outerChild = yield* Scope.fork(scope)
+
+yield* Scope.use(outerChild)(
   Effect.gen(function* () {
     const outer = yield* makeResource("外层")
 
-    yield* Scope.fork(
+    // 在外层子 Scope 中再 fork 一个内层子 Scope
+    const innerChild = yield* Scope.fork(outerChild)
+
+    yield* Scope.use(innerChild)(
       Effect.gen(function* () {
         const inner = yield* makeResource("内层")
         // 内层 Scope 关闭 → 释放 inner
@@ -267,18 +290,20 @@ Finalizer 是一个注册到 Scope 的清理函数。当 Scope 关闭时，所�
 | 特性 | acquireRelease | addFinalizer |
 |------|---------------|--------------|
 | 使用场景 | 需要配对"获取+释放"的资源 | 已有资源的清理逻辑 |
-| 参数 | acquire Effect + release 函数 | 仅清理 Effect |
+| 参数 | acquire Effect + release 函数 | `(exit: Exit) => Effect<void>` |
 | 典型用途 | 数据库连接、文件句柄 | 临时文件清理、取消订阅、日志 |
 
 ### 5.2 基本用法
+
+在 beta.65 中，`addFinalizer` 接收一个 `(exit) => Effect` 函数：
 
 ```typescript
 import { Effect, Console } from "effect"
 
 const program = Effect.scoped(
   Effect.gen(function* () {
-    // 注册 finalizer
-    yield* Effect.addFinalizer(() =>
+    // 注册 finalizer（接收 Exit 参数）
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => Console.log("清理资源")),
     )
 
@@ -295,13 +320,13 @@ const program = Effect.scoped(
 ```typescript
 const program = Effect.scoped(
   Effect.gen(function* () {
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => Console.log("第一个注册 — 最后执行")),
     )
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => Console.log("第二个注册 — 第二个执行")),
     )
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => Console.log("第三个注册 — 最先执行")),
     )
     // Scope 关闭时输出顺序：3 → 2 → 1
@@ -323,7 +348,7 @@ const program = Effect.scoped(
     )
 
     // addFinalizer 添加额外的清理逻辑
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => recordMetrics()),
     )
 

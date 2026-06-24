@@ -4,6 +4,10 @@
  * addFinalizer 向当前 Scope 注册一个"终结器"（finalizer）。
  * 当 Scope 关闭时，所有注册的 finalizer 会按 LIFO 顺序执行。
  *
+ * 在 Effect 4.0.0-beta.65 中，addFinalizer 的签名为：
+ *   addFinalizer(finalizer: (exit: Exit.Exit<unknown, unknown>) => Effect<void>)
+ * finalizer 接收 Exit 参数，可以判断 Scope 的成功/失败状态。
+ *
  * 与 acquireRelease 的区别：
  * - acquireRelease: 将"获取"和"释放"配对，适用于需要显式获取的资源
  * - addFinalizer: 只注册清理逻辑，适用于已有资源或副作用清理
@@ -25,17 +29,17 @@ const program1 = Effect.scoped(
     Console.log("=== 场景 1: 基本 finalizer 和 LIFO 执行顺序 ===")
 
     // 注册 finalizer 1（最先注册，最后执行）
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => Console.log("[finalizer] 第 1 个注册 — 最后执行")),
     )
 
     // 注册 finalizer 2
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => Console.log("[finalizer] 第 2 个注册 — 第二个执行")),
     )
 
     // 注册 finalizer 3（最后注册，最先执行）
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => Console.log("[finalizer] 第 3 个注册 — 最先执行")),
     )
 
@@ -58,7 +62,7 @@ const program2 = Effect.scoped(
     Console.log("[create] 创建临时文件 /tmp/effect-demo.tmp")
 
     // 注册清理 finalizer — 无论成功还是失败都会执行
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => {
         if (tempFileExists) {
           tempFileExists = false
@@ -74,7 +78,7 @@ const program2 = Effect.scoped(
 )
 
 // ---------------------------------------------------------------------------
-// 3. finalizer 在错误场景中的行为
+// 3. finalizer 在错误场景中的行为 + Exit 状态检测
 // ---------------------------------------------------------------------------
 
 const program3 = Effect.scoped(
@@ -83,11 +87,12 @@ const program3 = Effect.scoped(
 
     let resourceCleaned = false
 
-    // 注册清理 finalizer
-    yield* Effect.addFinalizer(() =>
+    // 注册清理 finalizer — 可以通过 exit 参数判断退出状态
+    yield* Effect.addFinalizer((exit) =>
       Effect.sync(() => {
         resourceCleaned = true
-        Console.log("[finalizer] 清理资源（即使发生错误）")
+        const status = Exit.isSuccess(exit) ? "成功" : "失败"
+        Console.log(`[finalizer] 清理资源（退出状态: ${status}）`)
       }),
     )
 
@@ -128,7 +133,7 @@ const program4 = Effect.scoped(
     )
 
     // 额外注册一个 finalizer：记录连接使用指标
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() =>
         Console.log("[finalizer] 记录连接使用指标到监控系统"),
       ),

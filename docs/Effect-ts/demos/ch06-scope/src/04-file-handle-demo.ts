@@ -6,7 +6,7 @@
  *
  * 1. acquireRelease 确保文件句柄在使用后正确关闭
  * 2. addFinalizer 确保临时文件被清理
- * 3. Scope.fork 隔离不同文件批次的操作
+ * 3. Scope.fork + Scope.use 隔离不同文件批次的操作
  * 4. 即使发生错误，文件句柄也不会泄漏
  */
 import { Effect, Console, Scope, Exit } from "effect"
@@ -101,7 +101,7 @@ const program1 = Effect.scoped(
     Console.log(`文件内容: ${content}`)
 
     // 注册清理 finalizer：删除临时文件
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => {
         if (fs.existsSync(tmpFile)) {
           fs.unlinkSync(tmpFile)
@@ -137,7 +137,7 @@ const program2 = Effect.scoped(
     yield* file.read()
 
     // 清理临时文件
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => {
         if (fs.existsSync(tmpFile)) {
           fs.unlinkSync(tmpFile)
@@ -175,7 +175,7 @@ const program3 = Effect.scoped(
     Console.log(`文件 2: ${contents[1]}`)
 
     // 清理两个临时文件
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => {
         if (fs.existsSync(tmpFile1)) {
           fs.unlinkSync(tmpFile1)
@@ -195,7 +195,7 @@ const program3 = Effect.scoped(
 // ---------------------------------------------------------------------------
 
 /**
- * 使用 Scope.fork 将一组文件操作隔离在子 Scope 中。
+ * 使用 Scope.fork + Scope.use 将一组文件操作隔离在子 Scope 中。
  * 子 Scope 中的文件在子 Scope 关闭时释放，
  * 不影响父 Scope 中的其他资源。
  */
@@ -203,6 +203,7 @@ const program4 = Effect.scoped(
   Effect.gen(function* () {
     Console.log("\n=== 场景 4: 子 Scope 隔离文件操作 ===")
 
+    const scope = yield* Scope.Scope
     const batchFile = path.join(os.tmpdir(), `effect-batch-${Date.now()}.txt`)
     const batchFile2 = path.join(os.tmpdir(), `effect-batch2-${Date.now()}.txt`)
 
@@ -210,8 +211,10 @@ const program4 = Effect.scoped(
     const mainFile = yield* openFile(batchFile)
     yield* mainFile.write("主文件内容")
 
-    // 在子 Scope 中处理另一个文件
-    yield* Scope.fork(
+    // 创建子 Scope 并在其中处理另一个文件
+    const childScope = yield* Scope.fork(scope)
+
+    yield* Scope.use(childScope)(
       Effect.gen(function* () {
         const childFile = yield* openFile(batchFile2)
         yield* childFile.write("子 Scope 文件内容")
@@ -226,7 +229,7 @@ const program4 = Effect.scoped(
     Console.log(`主 Scope: ${mainContent}`)
 
     // 清理所有临时文件
-    yield* Effect.addFinalizer(() =>
+    yield* Effect.addFinalizer((_exit) =>
       Effect.sync(() => {
         [batchFile, batchFile2].forEach((f) => {
           if (fs.existsSync(f)) {
