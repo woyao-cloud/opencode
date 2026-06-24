@@ -1,11 +1,12 @@
 export { ToolRuntimeService, makeRuntime } from "./tool"
-export type { ToolDef, Tool, ToolMap, ToolRuntimeShape } from "./tool"
-export { ToolRuntimeLive } from "./registry"
+export type { ExecuteResult, ToolContext, Def, DefWithoutID, Info, ToolRuntimeShape } from "./tool"
+
 export { ReadTool } from "./read"
 export { WriteTool } from "./write"
 export { BashTool } from "./bash"
 export { GlobTool } from "./glob"
 export { GrepTool } from "./grep"
+
 export { truncateOutput, truncateLines } from "./truncate"
-export { toolSchema } from "./json-schema"
-export type { ParamDef, ParamDefs, JSONSchema } from "./json-schema"
+
+export { ToolRuntimeLive } from "./registry"

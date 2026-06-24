@@ -1,0 +1,14 @@
+{
+  "name": "ch07-config",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:basic": "bun run src/01-basic-config.ts",
+    "demo:provider": "bun run src/02-provider.ts",
+    "demo:compose": "bun run src/03-composition.ts",
+    "demo:flags": "bun run src/04-runtime-flags-pattern.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}

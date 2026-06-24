@@ -6,7 +6,8 @@ import type { Database } from "bun:sqlite"
 import { getDb } from "./db"
 import type { SessionRow, MessageRow, SessionStatus } from "./schema"
 import { sessionId, messageId } from "./id"
-import { EventBus } from "@/bus/index"
+import { BusService } from "@/bus/index"
+import { SessionCreated, SessionUpdated, SessionDeleted, MessageAdded } from "@/bus/bus-event"
 
 export type { SessionRow, MessageRow, SessionStatus }
 
@@ -31,103 +32,108 @@ export class SessionService extends Context.Service<SessionService, SessionShape
 
 // ── Factory ─────────────────────────────────────────────────
 
-export function makeSession(): SessionShape {
-  const db: Database = getDb()
+export function makeSession(): Effect.Effect<SessionShape, never, BusService> {
+  return Effect.gen(function* () {
+    const db: Database = getDb()
+    const bus = yield* BusService
 
-  // All statements use positional ? parameters — bun:sqlite accepts
-  // a plain array or an object with $‑prefixed keys for named params.
-  const insertSession = db.prepare(`
-    INSERT INTO session (id, status, title, created_at, updated_at, agent_id, model_id, metadata_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `)
+    // All statements use positional ? parameters — bun:sqlite accepts
+    // a plain array or an object with $‑prefixed keys for named params.
+    const insertSession = db.prepare(`
+      INSERT INTO session (id, status, title, created_at, updated_at, agent_id, model_id, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
 
-  const updateSessionStatus = db.prepare(`
-    UPDATE session SET status = ?, updated_at = ? WHERE id = ?
-  `)
+    const updateSessionStatus = db.prepare(`
+      UPDATE session SET status = ?, updated_at = ? WHERE id = ?
+    `)
 
-  const insertMessage = db.prepare(`
-    INSERT INTO message (id, session_id, role, content, created_at, tool_name, tool_args_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `)
+    const insertMessage = db.prepare(`
+      INSERT INTO message (id, session_id, role, content, created_at, tool_name, tool_args_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
 
-  return {
-    create: (opts) =>
-      Effect.sync(() => {
-        const now = Date.now()
-        const id = sessionId()
-        const row: SessionRow = {
-          id,
-          status: "idle",
-          title: opts?.title ?? "",
-          created_at: now,
-          updated_at: now,
-          agent_id: opts?.agentId ?? "default",
-          model_id: opts?.modelId ?? null,
-          metadata_json: null,
-        }
-        insertSession.run(
-          row.id, row.status, row.title,
-          row.created_at, row.updated_at,
-          row.agent_id, row.model_id, row.metadata_json,
-        )
-        EventBus.emit("session:created", { id })
-        return row
-      }),
+    const svc: SessionShape = {
+      create: (opts) =>
+        Effect.gen(function* () {
+          const now = Date.now()
+          const id = sessionId()
+          const row: SessionRow = {
+            id,
+            status: "idle",
+            title: opts?.title ?? "",
+            created_at: now,
+            updated_at: now,
+            agent_id: opts?.agentId ?? "default",
+            model_id: opts?.modelId ?? null,
+            metadata_json: null,
+          }
+          insertSession.run(
+            row.id, row.status, row.title,
+            row.created_at, row.updated_at,
+            row.agent_id, row.model_id, row.metadata_json,
+          )
+          yield* bus.publish(SessionCreated, { id })
+          return row
+        }),
 
-    get: (id) =>
-      Effect.sync(() => {
-        const rows = db.query("SELECT * FROM session WHERE id = ?").all(id) as Array<Record<string, unknown>>
-        if (rows.length === 0) return undefined
-        return hydrateSessionRow(rows[0])
-      }),
+      get: (id) =>
+        Effect.sync(() => {
+          const rows = db.query("SELECT * FROM session WHERE id = ?").all(id) as Array<Record<string, unknown>>
+          if (rows.length === 0) return undefined
+          return hydrateSessionRow(rows[0])
+        }),
 
-    list: (limit) =>
-      Effect.sync(() => {
-        const sql = limit
-          ? db.query("SELECT * FROM session ORDER BY created_at DESC LIMIT ?")
-          : db.query("SELECT * FROM session ORDER BY created_at DESC")
-        const rows = limit ? sql.all(limit) : sql.all()
-        return (rows as Array<Record<string, unknown>>).map(hydrateSessionRow)
-      }),
+      list: (limit) =>
+        Effect.sync(() => {
+          const sql = limit
+            ? db.query("SELECT * FROM session ORDER BY created_at DESC LIMIT ?")
+            : db.query("SELECT * FROM session ORDER BY created_at DESC")
+          const rows = limit ? sql.all(limit) : sql.all()
+          return (rows as Array<Record<string, unknown>>).map(hydrateSessionRow)
+        }),
 
-    updateStatus: (id, status) =>
-      Effect.sync(() => {
-        updateSessionStatus.run(status, Date.now(), id)
-        EventBus.emit("session:updated", { id, status })
-      }),
+      updateStatus: (id, status) =>
+        Effect.gen(function* () {
+          updateSessionStatus.run(status, Date.now(), id)
+          yield* bus.publish(SessionUpdated, { id, status })
+        }),
 
-    delete: (id) =>
-      Effect.sync(() => {
-        db.run("DELETE FROM message WHERE session_id = ?", [id] as any)
-        db.run("DELETE FROM session WHERE id = ?", [id] as any)
-        EventBus.emit("session:deleted", { id })
-      }),
+      delete: (id) =>
+        Effect.gen(function* () {
+          db.run("DELETE FROM message WHERE session_id = ?", [id] as any)
+          db.run("DELETE FROM session WHERE id = ?", [id] as any)
+          yield* bus.publish(SessionDeleted, { id })
+        }),
 
-    appendMessage: (sid, msg) =>
-      Effect.sync(() => {
-        const now = Date.now()
-        const id = messageId()
-        const row: MessageRow = {
-          id,
-          session_id: sid,
-          role: msg.role as any,
-          content: msg.content,
-          created_at: now,
-          tool_name: msg.toolName ?? null,
-          tool_args_json: msg.toolArgs ? JSON.stringify(msg.toolArgs) : null,
-        }
-        insertMessage.run(row.id, row.session_id, row.role, row.content, row.created_at, row.tool_name, row.tool_args_json)
-        db.run("UPDATE session SET updated_at = ? WHERE id = ?", [now, sid] as any)
-        EventBus.emit("message:added", { sessionId: sid, messageId: id })
-        return row
-      }),
+      appendMessage: (sid, msg) =>
+        Effect.gen(function* () {
+          const now = Date.now()
+          const id = messageId()
+          const row: MessageRow = {
+            id,
+            session_id: sid,
+            role: msg.role as any,
+            content: msg.content,
+            created_at: now,
+            tool_name: msg.toolName ?? null,
+            tool_args_json: msg.toolArgs ? JSON.stringify(msg.toolArgs) : null,
+          }
+          insertMessage.run(row.id, row.session_id, row.role, row.content, row.created_at, row.tool_name, row.tool_args_json)
+          db.run("UPDATE session SET updated_at = ? WHERE id = ?", [now, sid] as any)
+          yield* bus.publish(MessageAdded, { sessionId: sid, messageId: id })
+          return row
+        }),
 
-    getMessages: (sid) =>
-      Effect.sync(() => {
-        const rows = db.query("SELECT * FROM message WHERE session_id = ? ORDER BY created_at ASC").all(sid) as Array<Record<string, unknown>>
-        return rows.map(hydrateMessageRow)
-      }),
-  }
+      getMessages: (sid) =>
+        Effect.sync(() => {
+          const rows = db.query("SELECT * FROM message WHERE session_id = ? ORDER BY created_at ASC").all(sid) as Array<Record<string, unknown>>
+          return rows.map(hydrateMessageRow)
+        }),
+    }
+
+    return svc
+  })
 }
 
 // ── Hydration helpers ───────────────────────────────────────
@@ -159,6 +165,6 @@ function hydrateMessageRow(row: Record<string, unknown>): MessageRow {
 
 // ── Layer ───────────────────────────────────────────────────
 
-export const SessionLive = Layer.succeed(SessionService, makeSession())
+export const SessionLive = Layer.effect(SessionService, makeSession())
 
 export * as Session from "./session"

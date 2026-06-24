@@ -1,24 +1,22 @@
-import { Effect, Context, Layer } from "effect"
-import * as Log from "@miniopencode/core/util/log"
+import { Effect, Layer } from "effect"
 import { ToolRuntimeService, makeRuntime } from "./tool"
-import type { Tool } from "./tool"
+import type { Info } from "./tool"
 import { ReadTool } from "./read"
 import { WriteTool } from "./write"
 import { BashTool } from "./bash"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 
-const log = Log.create({ service: "tool.registry" })
-
-const defaultTools: ReadonlyArray<Tool> = [
-  ReadTool,
-  WriteTool,
-  BashTool,
-  GlobTool,
-  GrepTool,
+// All tools have no Effect dependencies, so runSync is safe.
+const defaultToolInfos: ReadonlyArray<Info<any>> = [
+  Effect.runSync(ReadTool),
+  Effect.runSync(WriteTool),
+  Effect.runSync(BashTool),
+  Effect.runSync(GlobTool),
+  Effect.runSync(GrepTool),
 ]
 
 export const ToolRuntimeLive = Layer.succeed(
   ToolRuntimeService,
-  makeRuntime(defaultTools),
+  makeRuntime(defaultToolInfos),
 )
