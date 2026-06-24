@@ -22,7 +22,7 @@ export interface Def<Parameters extends Schema.Decoder<unknown> = Schema.Decoder
   id: string
   description: string
   parameters: Parameters
-  execute(args: Schema.Schema.Type<Parameters>, ctx: ToolContext): Effect.Effect<ExecuteResult>
+  execute(args: Schema.Schema.Type<Parameters>, ctx: ToolContext): Effect.Effect<ExecuteResult, never, any>
 }
 
 export type DefWithoutID<Parameters extends Schema.Decoder<unknown> = Schema.Decoder<unknown>> =
@@ -30,15 +30,15 @@ export type DefWithoutID<Parameters extends Schema.Decoder<unknown> = Schema.Dec
 
 export interface Info<Parameters extends Schema.Decoder<unknown> = Schema.Decoder<unknown>> {
   id: string
-  init: () => Effect.Effect<DefWithoutID<Parameters>>
+  init: () => Effect.Effect<DefWithoutID<Parameters>, never, any>
 }
 
 // ── Tool Definition Helpers ─────────────────────────────────
 
-export function define<Parameters extends Schema.Decoder<unknown>>(
+export function define<Parameters extends Schema.Decoder<unknown>, R = never>(
   id: string,
-  init: Effect.Effect<DefWithoutID<Parameters>>,
-): Effect.Effect<Info<Parameters>> {
+  init: Effect.Effect<DefWithoutID<Parameters>, never, R>,
+): Effect.Effect<Info<Parameters>, never, R> {
   return Effect.gen(function* () {
     const resolved = yield* init
     return { id, init: () => Effect.succeed(resolved) }
@@ -47,7 +47,7 @@ export function define<Parameters extends Schema.Decoder<unknown>>(
 
 export function init<Parameters extends Schema.Decoder<unknown>>(
   info: Info<Parameters>,
-): Effect.Effect<Def<Parameters>> {
+): Effect.Effect<Def<Parameters>, never, any> {
   return Effect.gen(function* () {
     const d = yield* info.init()
     return { ...d, id: info.id }
@@ -79,9 +79,9 @@ export function makeRuntime(toolInfos: ReadonlyArray<Info<any>>): ToolRuntimeSha
 
   // Init defs lazily - first tool execution triggers init.
   // Eager init via Effect.runSync only works for tools without Effect dependencies.
-  const defPromises = new Map<string, Effect.Effect<Def<any>>>()
+  const defPromises = new Map<string, Effect.Effect<Def<any>, never, any>>()
 
-  function ensureDef(name: string): Effect.Effect<Def<any>> {
+  function ensureDef(name: string): Effect.Effect<Def<any>, never, any> {
     const cached = defPromises.get(name)
     if (cached) return cached
 
@@ -115,9 +115,9 @@ export function makeRuntime(toolInfos: ReadonlyArray<Info<any>>): ToolRuntimeSha
           Effect.orDie,
           Effect.flatMap((decoded) => def.execute(decoded, ctx ?? {})),
           Effect.map((r) => r.output),
-        ) as Effect.Effect<string>
+        )
       }),
-    )
+    ) as Effect.Effect<string>
   }
 
   function toAI(): Record<string, {
@@ -131,7 +131,7 @@ export function makeRuntime(toolInfos: ReadonlyArray<Info<any>>): ToolRuntimeSha
     // Only expose tools that can be eagerly initialized (no Effect deps)
     for (const info of toolInfos) {
       try {
-        const def = Effect.runSync(init(info))
+        const def: Def<any> = Effect.runSync(init(info) as Effect.Effect<Def<any>>)
         result[def.id] = {
           description: def.description,
           parameters: (Schema.toJsonSchemaDocument(def.parameters) as any).schema as Record<string, unknown>,

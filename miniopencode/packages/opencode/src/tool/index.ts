@@ -6,6 +6,10 @@ export { WriteTool } from "./write"
 export { BashTool } from "./bash"
 export { GlobTool } from "./glob"
 export { GrepTool } from "./grep"
+export { WebFetchTool } from "./webfetch"
+export { WebSearchTool } from "./websearch"
+export { TaskStatusTool } from "./task_status"
+export { SkillTool } from "./skill"
 
 export { truncateOutput, truncateLines } from "./truncate"
 

@@ -241,3 +241,24 @@ account, acp, auth, control-plane, format, id, ide, image, installation, lsp, mc
 read, write, bash, glob, grep, task
 结论
 核心骨架已基本成型——CLI → Session → Prompt → LLM → Tools → Persistence 这条主线是通的，SubAgent 和权限系统也已集成。接下来的优先级取决于你想往哪个方向走：补齐外围工具（Phases 8-13）让 agent 能做更多事，还是深入高级功能（Phase 14）解锁 MCP/PTY 等能力。
+
+# What was done
+All type errors in the four new tool files have been resolved:
+tool.ts — Core type relaxation
+- Def.execute: Changed return type from Effect<ExecuteResult> (R=never) to Effect<ExecuteResult, never, any> so tools with service dependencies compile
+- Info.init: Same relaxation — () => Effect<DefWithoutID, never, any>
+- define(): Added generic R parameter to propagate the requirement context
+- init(): Return type relaxed to Effect<Def, never, any>
+- ensureDef / defPromises: Types updated to match (R = any)
+- run(): Cast moved to the outer expression so the chain type is properly erased
+- toAI(): Cast changed from as any to as Effect.Effect<Def<any>> so runSync returns a typed Def instead of unknown
+webfetch.ts — Replaced Effect.tryPromise with Effect.promise
+Keeps the error channel never, avoiding the Error vs never type mismatch. Outer try/catch still catches runtime failures.
+websearch.ts — Same pattern as webfetch
+task_status.ts — Restructured to direct Info object
+- Created Info<typeof Parameters> directly instead of using Tool.define(...) (which returns Effect<Info<...>>)
+- Replaced Effect.catchAll (doesn't exist in Effect v4 beta.65) with Effect.catchCause
+skill.ts — Same direct Info object pattern as task_status
+Remaining (pre-existing, unrelated)
+src/cli/cmd/run.ts — 2 errors (Effect type param mismatch)
+src/tool/task.ts   — 3 errors (missing `Cause` import, return type)
