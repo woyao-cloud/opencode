@@ -1,0 +1,15 @@
+{
+  "name": "ch18-problem-handbook",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:long-running": "bun run src/01-long-running-task.ts",
+    "demo:rate-limiting": "bun run src/02-rate-limiting.ts",
+    "demo:degradation": "bun run src/03-graceful-degradation.ts",
+    "demo:debugging": "bun run src/04-debugging.ts",
+    "demo:anti-patterns": "bun run src/05-anti-patterns.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
