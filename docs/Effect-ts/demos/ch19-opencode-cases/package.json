@@ -1,0 +1,15 @@
+{
+  "name": "ch19-opencode-cases",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:runtime": "bun run src/01-runtime-arch.ts",
+    "demo:tool": "bun run src/02-tool-system.ts",
+    "demo:mcp": "bun run src/03-mcp-client.ts",
+    "demo:watcher": "bun run src/04-file-watcher.ts",
+    "demo:permission": "bun run src/05-permission-system.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
