@@ -204,3 +204,40 @@ Phase 8 ░░░░░░░░░░░░░░░░  0%
 | session/index.ts | 修改 — 导出所有新服务 |
 | index.ts | 修改 — 注册 serve 命令 |
 Phase 4 进度：~65% → ~95% —— 还剩验证步骤（迭代 83, 91-100）
+
+# status
+
+miniopencode 当前进度评估
+整体数据
+| 指标 | miniopencode | 完整版 opencode | 比例 |
+|---|---|---|---|
+| opencode 包源文件 | 61 | 414 | ~15% |
+| 总源文件 (3 包) | 78 | ~480+ | ~16% |
+| 模块数 | 23 | 50 | 46% |
+| 工具数 | 6 | 20+ | ~30% |
+| 迭代完成 | ~190 | 500 | ~38% |
+按 Phase 进度
+Phase 0  脚手架     ████████████████ 100%  ✅
+Phase 1  最小 LLM    ██████████████░░ ~95%  ✅ (缺验证)
+Phase 2  配置权限    ████████████████ 100%  ✅
+Phase 3  工具系统    ████████████████ 100%  ✅
+Phase 4  Session    ███████████████░ ~95%  ✅ (serve命令、验证未跑完)
+Phase 5  Prompt引擎  ████████████████ 100%  ✅
+Phase 6  SubAgent   █████████████░░░ ~80%  ✅ (TaskPromptOps已集成)
+Phase 7  权限安全    ████████████░░░░ ~70%  ✅ (缺 ask/reply UI 事件流)
+Phase 8  配置完善    ░░░░░░░░░░░░░░░░  0%  ❌
+Phase 9  多Provider  ██░░░░░░░░░░░░░░ ~10%  ❌ (仅 OpenAI)
+Phase 10 存储系统    ░░░░░░░░░░░░░░░░  0%  ❌
+Phase 11 文件/Git   ███░░░░░░░░░░░░░ ~20%  ❌ (无 LSP/edit)
+Phase 12 高级会话    ░░░░░░░░░░░░░░░░  0%  ❌
+Phase 13 工具完善    █████░░░░░░░░░░░ ~30%  ❌ (缺 webfetch/websearch 等)
+Phase 14 高级功能    ░░░░░░░░░░░░░░░░  0%  ❌ (无 MCP/ACP/PTY)
+Phase 15 生产化      ░░░░░░░░░░░░░░░░  0%  ❌
+已实现的模块（23/50）
+agent, background, bus, cli, command, config, effect, env, file, git, permission, plugin, project, provider, server, session, skill, tool, util, worktree, agent-bus, pipeline
+缺失的模块（21）
+account, acp, auth, control-plane, format, id, ide, image, installation, lsp, mcp, patch, pty, question, reference, share, shell, snapshot, storage, sync, v2
+已实现的工具（6/20+）
+read, write, bash, glob, grep, task
+结论
+核心骨架已基本成型——CLI → Session → Prompt → LLM → Tools → Persistence 这条主线是通的，SubAgent 和权限系统也已集成。接下来的优先级取决于你想往哪个方向走：补齐外围工具（Phases 8-13）让 agent 能做更多事，还是深入高级功能（Phase 14）解锁 MCP/PTY 等能力。

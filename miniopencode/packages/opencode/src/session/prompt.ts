@@ -14,7 +14,6 @@ import { buildInstructions } from "./instruction"
 import { checkToolPermission } from "@/permission/evaluate"
 import { SessionRunStateService } from "./run-state"
 import { SessionStatusService } from "./status"
-import type { TaskPromptOps } from "@/tool/task"
 
 const log = Log.create({ service: "session.prompt" })
 
@@ -27,7 +26,6 @@ export interface PromptInput {
   readonly tools: Record<string, unknown>
   readonly instructions?: ReadonlyArray<string>
   readonly signal?: AbortSignal
-  readonly promptOps?: TaskPromptOps
 }
 
 export interface PromptOutput {
@@ -153,11 +151,8 @@ export function makePromptService(): PromptShape {
           { role: "user", content: input.userInput },
         ]
 
-        // 7. Wrap tools with context (promptOps) and permission check
+        // 7. Wrap tools with permission check
         let finalTools = input.tools
-        if (input.promptOps) {
-          finalTools = wrapToolsWithContext(finalTools, input.promptOps)
-        }
         if (agentInfo.permissions?.length) {
           finalTools = wrapToolsWithPermissionCheck(finalTools, agentInfo.permissions as string[])
         }
@@ -212,35 +207,6 @@ export function makePromptService(): PromptShape {
     })
 
   return { prompt }
-}
-
-/**
- * Wrap tools so the task tool's execute function receives promptOps
- * via the tool's closure context. This allows the task tool to recursively
- * call the prompt engine for subagent execution.
- */
-function wrapToolsWithContext(
-  tools: Record<string, unknown>,
-  promptOps: TaskPromptOps,
-): Record<string, unknown> {
-  const wrapped: Record<string, any> = {}
-  for (const [name, tool] of Object.entries(tools)) {
-    const t = tool as any
-    if (name !== "task" || typeof t.execute !== "function") {
-      wrapped[name] = tool
-      continue
-    }
-    const originalExecute = t.execute.bind(t)
-    wrapped[name] = {
-      ...t,
-      execute: async (args: any) => {
-        // Inject promptOps into the args so the task tool can use it
-        const enrichedArgs = { ...args, _promptOps: promptOps }
-        return originalExecute(enrichedArgs)
-      },
-    }
-  }
-  return wrapped
 }
 
 // ── Layer ───────────────────────────────────────────────────

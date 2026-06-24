@@ -3,21 +3,22 @@
 // multi-step tasks. Supports foreground (sync) and background
 // (async) modes with session continuity via task_id.
 //
-// Dependencies (AgentService, BusService, etc.) are resolved at
-// execution time via Effect context.
+// This file provides the schema, helpers, and an Effect-based
+// executeTask function that handles both sync and background
+// execution. The actual tool entry is constructed in cli/cmd/run.ts
+// with a closure over createTaskPrompt (the promptOps).
 
 import { Effect, Schema } from "effect"
 import * as Log from "@miniopencode/core/util/log"
-import type { ToolContext, ExecuteResult, DefWithoutID } from "./tool"
+import type { ExecuteResult, DefWithoutID } from "./tool"
 import { BackgroundJobService } from "@/background/job"
 import { BusService } from "@/bus/index"
 import { BackgroundTaskCompleted, BackgroundTaskFailed } from "@/bus/bus-event"
 import { SessionService } from "@/session/session"
-import { AgentService } from "@/agent/index"
 
 const log = Log.create({ service: "tool.task" })
 
-// ── TaskPromptOps — injected via ToolContext by the caller ──
+// ── TaskPromptOps — injected via closure by cli/cmd/run.ts ──
 
 export interface TaskPromptOps {
   readonly prompt: (sessionId: string, input: string, subagentType: string) => Effect.Effect<{ text: string }, Error>
@@ -38,6 +39,9 @@ const Parameters = Schema.Struct({
   }),
 })
 
+export type TaskParams = Schema.Schema.Type<typeof Parameters>
+export { Parameters as TaskParameters }
+
 // ── Helpers ─────────────────────────────────────────────────
 
 function formatResult(sessionId: string, text: string): string {
@@ -50,27 +54,57 @@ function formatResult(sessionId: string, text: string): string {
   ].join("\n")
 }
 
+function formatBackgroundOutput(sessionId: string): string {
+  return [
+    `task_id: ${sessionId} (for polling this task with task_status)`,
+    "state: running",
+    "",
+    "<task_result>",
+    "Background task started. Continue your current work.",
+    "</task_result>",
+  ].join("\n")
+}
+
+function formatBackgroundMessage(
+  sessionId: string,
+  description: string,
+  state: "completed" | "error",
+  text: string,
+): string {
+  const tag = state === "completed" ? "task_result" : "task_error"
+  const title = state === "completed"
+    ? `Background task completed: ${description}`
+    : `Background task failed: ${description}`
+  return [
+    title,
+    `task_id: ${sessionId}`,
+    `state: ${state}`,
+    "",
+    `<${tag}>`,
+    text,
+    `</${tag}>`,
+  ].join("\n")
+}
+
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
 }
 
-// ── Execution logic — used both from Effect context and AI SDK bridge ──
+// ── Execution logic — used from cli/cmd/run.ts with closure ──
 
 export function executeTask(
-  params: Schema.Schema.Type<typeof Parameters>,
-  ctx: ToolContext,
-): Effect.Effect<ExecuteResult> {
+  params: TaskParams,
+  ops: TaskPromptOps,
+  parentSessionId: string,
+): Effect.Effect<ExecuteResult, Error, BackgroundJobService | BusService | SessionService> {
   return Effect.gen(function* () {
-    const agent = yield* AgentService
-    const background = yield* BackgroundJobService
+    const bg = yield* BackgroundJobService
     const sessions = yield* SessionService
+    const bus = yield* BusService
+    const runInBackground = params.background === true
 
-    // 1. Look up the subagent type
-    const agentInfo = yield* agent.get(params.subagent_type)
-    log.debug("task agent", { type: params.subagent_type, id: agentInfo.id })
-
-    // 2. Get or create the subagent session
+    // 1. Get or create the subagent session
     const taskId = params.task_id
     const existingSession = taskId
       ? yield* sessions.get(taskId).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
@@ -81,29 +115,88 @@ export function executeTask(
       agentId: params.subagent_type,
     }))
 
-    // 3. Check if already running
-    const existingJob = yield* background.get(subagentSession.id)
+    // 2. Check if already running
+    const existingJob = yield* bg.get(subagentSession.id)
     if (existingJob?.status === "running") {
-      return { title: params.description, output: `Task ${subagentSession.id} is already running.` }
+      return {
+        title: params.description,
+        metadata: { sessionId: subagentSession.id, subagentType: params.subagent_type },
+        output: `Task ${subagentSession.id} is already running. Use task_status to check progress.`,
+      }
     }
 
-    // 4. Get promptOps from context
-    const ops = ctx.extra?.promptOps as TaskPromptOps | undefined
-    if (!ops) {
-      return yield* Effect.fail(new Error("Task tool requires promptOps in context"))
+    // 3. Build the subagent run effect (call runTask() to get the Effect)
+    const runTask = Effect.fn("TaskTool.runTask")(function* () {
+      const result = yield* ops.prompt(subagentSession.id, params.prompt, params.subagent_type)
+      return result.text
+    })
+
+    // 4. Background or sync execution
+    if (runInBackground) {
+      const injectResult = Effect.fn("TaskTool.injectBackgroundResult")(function* (
+        state: "completed" | "error",
+        text: string,
+      ) {
+        yield* sessions.appendMessage(parentSessionId, {
+          role: "assistant",
+          content: formatBackgroundMessage(subagentSession.id, params.description, state, text),
+        })
+        if (state === "completed") {
+          yield* bus.publish(BackgroundTaskCompleted, {
+            taskId: subagentSession.id,
+            sessionId: parentSessionId,
+            description: params.description,
+            text,
+          })
+        } else {
+          yield* bus.publish(BackgroundTaskFailed, {
+            taskId: subagentSession.id,
+            sessionId: parentSessionId,
+            description: params.description,
+            error: text,
+          })
+        }
+      })
+
+      // Use matchCauseEffect pattern (same as background/job.ts)
+      yield* bg.start({
+        id: subagentSession.id,
+        type: "task",
+        title: params.description,
+        metadata: { parentSessionId, subagentType: params.subagent_type },
+        run: Effect.matchCauseEffect(runTask(), {
+          onSuccess: (text) => injectResult("completed", text).pipe(Effect.ignore),
+          onFailure: (cause) => {
+            const errText = errorText(Cause.squash(cause))
+            return Cause.hasInterruptsOnly(cause)
+              ? Effect.void
+              : injectResult("error", errText).pipe(Effect.ignore)
+          },
+        }),
+      })
+
+      return {
+        title: params.description,
+        metadata: {
+          sessionId: subagentSession.id,
+          subagentType: params.subagent_type,
+          background: true,
+        },
+        output: formatBackgroundOutput(subagentSession.id),
+      }
     }
 
-    // 5. Run the subagent
-    const result = yield* ops.prompt(subagentSession.id, params.prompt, params.subagent_type)
+    // Sync execution
+    const text = yield* runTask()
     return {
       title: params.description,
       metadata: { sessionId: subagentSession.id, subagentType: params.subagent_type },
-      output: formatResult(subagentSession.id, result.text),
+      output: formatResult(subagentSession.id, text),
     }
-  }) as Effect.Effect<ExecuteResult>
+  })
 }
 
-// ── Tool Definition (no Effect deps at init time) ──────────
+// ── Tool Definition (schema + description, no Effect deps) ──
 
 const DESCRIPTION = `Launch a new agent to handle complex, multistep tasks autonomously.
 
@@ -117,5 +210,6 @@ Usage notes:
 export const TaskTool: DefWithoutID<typeof Parameters> = {
   description: DESCRIPTION,
   parameters: Parameters,
-  execute: (params, ctx) => executeTask(params, ctx as ToolContext),
+  execute: (params, _ctx) =>
+    Effect.die(new Error("TaskTool.execute should not be called directly — use cli/cmd/run.ts entry with closure")),
 }

@@ -15,6 +15,17 @@ import readline from "readline"
 
 const log = Log.create({ service: "cli.run" })
 
+// ── Tools & Session tracking ─────────────────────────────────
+// The current session ID is needed by the task tool for background
+// result injection. It's set just before each prompt call.
+
+let _parentSessionId = ""
+
+/** Set the parent session ID for background task result injection. */
+export function setParentSessionId(id: string) {
+  _parentSessionId = id
+}
+
 // ── Build tools list including the task tool ─────────────────
 
 async function buildTools(opts: {
@@ -27,32 +38,30 @@ async function buildTools(opts: {
     ToolRuntimeService.use((svc) => Effect.succeed(svc.toAITools())),
   ) as Record<string, unknown>
 
-  // Create a subagent prompt function that runs inside the Effect runtime
-  const createTaskPrompt = async (sessionId: string, input: string, subagentType: string): Promise<string> => {
-    const result = await AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const agent = yield* AgentService
-        const provider = yield* ProviderService
-        const prompt = yield* PromptService
+  // ── Create the subagent prompt function (promptOps) ─────
+  // This is called by executeTask for both sync and background modes.
+  const createSubagentPrompt = (sessionId: string, input: string, subagentType: string) =>
+    Effect.gen(function* () {
+      const agent = yield* AgentService
+      const provider = yield* ProviderService
+      const prompt = yield* PromptService
 
-        // Get the subagent's model
-        const agentInfo = yield* agent.get(subagentType)
-        const model = yield* provider.resolve(agentInfo.model)
+      const agentInfo = yield* agent.get(subagentType)
+      const model = yield* provider.resolve(agentInfo.model)
 
-        // Run the prompt
-        const output = yield* prompt.prompt({
-          sessionId,
-          userInput: input,
-          model,
-          tools: basicTools,
-        })
-        return output.text
-      }),
-    )
-    return result as string
-  }
+      const output = yield* prompt.prompt({
+        sessionId,
+        userInput: input,
+        model,
+        tools: basicTools,
+      })
+      return output
+    })
 
-  // Wrap task tool as an AI SDK-compatible entry
+  // ── Task tool entry ─────────────────────────────────────
+  // AI SDK-compatible wrapper. Uses executeTask from tool/task.ts
+  // with a closure over createSubagentPrompt. Background mode
+  // injects results into the parent session (_parentSessionId).
   const taskToolEntry = {
     description: TaskTool.description,
     parameters: (() => {
@@ -60,33 +69,30 @@ async function buildTools(opts: {
       return schema.ast ? JSON.parse(JSON.stringify(schema.ast)) : {}
     })(),
     execute: async (args: Record<string, unknown>) => {
-      const params = args as { description: string; prompt: string; subagent_type: string; task_id?: string; background?: boolean }
+      const params = args as {
+        description: string
+        prompt: string
+        subagent_type: string
+        task_id?: string
+        background?: boolean
+      }
 
-      // Create a new session for the subagent
-      const session: { id: string } = await AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const sessions = yield* SessionService
-          return yield* sessions.create({
-            title: `${params.description} (@${params.subagent_type} subagent)`,
-            agentId: params.subagent_type,
-          })
-        }),
-      ) as any
+      const ops: import("@/tool/task").TaskPromptOps = {
+        prompt: (subagentSessionId, subagentInput, subagentType) =>
+          createSubagentPrompt(subagentSessionId, subagentInput, subagentType).pipe(
+            Effect.map((result) => ({ text: result.text })),
+          ),
+      }
 
-      // Run the subagent prompt
-      const text = await createTaskPrompt(session.id, params.prompt, params.subagent_type)
-
-      return [
-        `task_id: ${session.id} (for resuming to continue this task if needed)`,
-        "",
-        "<task_result>",
-        text,
-        "</task_result>",
-      ].join("\n")
+      const { executeTask } = await import("@/tool/task")
+      const result = await AppRuntime.runPromise(
+        executeTask(params, ops, _parentSessionId),
+      )
+      return result.output
     },
   }
 
-  return { ...basicTools, task: taskToolEntry }
+  return { ...basicTools, task: taskToolEntry } as Record<string, unknown>
 }
 
 // ── Run Command (single prompt) ─────────────────────────────
@@ -117,6 +123,7 @@ export async function runCommand(opts: {
   const result = await AppRuntime.runPromise(
     Effect.gen(function* () {
       const session = yield* SessionService.use((svc) => svc.create({ title: input.slice(0, 100) }))
+      setParentSessionId(session.id) // for background task result injection
       yield* SessionService.use((svc) => svc.updateStatus(session.id, "running"))
       const model = yield* ProviderService.use((svc) => svc.resolve(opts.model))
 
@@ -188,6 +195,7 @@ async function runInteractive(opts: {
       }
 
       try {
+        setParentSessionId(session.id) // for background task result injection
         const result = await AppRuntime.runPromise(
           PromptService.use((svc) =>
             svc.prompt({
