@@ -118,3 +118,26 @@ Existing files modified (3):
 | project/bootstrap.ts | Added LmLive + PromptLive to InstanceLayer |
 | cli/cmd/run.ts | Refactored from manual LLM.generate + inline persistence to PromptService.prompt() — both single-shot and interactive modes |
 Verification: Typecheck passes (exit 0), app boots and responds correctly (exit 0). The LLM interaction loop, message persistence, and tool execution cycles are now managed by the PromptService instead of being inlined in run.ts.
+
+# 本次调整概要
+1. src/permission/evaluate.ts — 评估引擎重构
+原来是：自己内联了 matchPattern（手动做 regex 转义），evaluateChain 重复定义在 index.ts，没有 arity 匹配支持。
+改为：
+- matchPattern → 用 matchWildcard（来自 wildcard.ts），消除重复
+- 集成 isArityPattern/matchArity（来自 arity.ts），支持 "git:checkout:*" 这类命令级权限匹配
+- evaluateChain 从 index.ts 移入这里，成为唯一出处
+- parseAgentPermissionPatterns 从 index.ts 移入这里
+- 新增 checkToolPermission(toolId, permissionPatterns) — 检查 tool ID 是否在 agent 的 allow/deny 模式中
+2. src/permission/index.ts — 删除重复代码
+去掉 evaluateChain 和 parseAgentPermissionPatterns 的两个内联副本，改为从 evaluate.ts import。SQLite 持久化和 PermissionRequested/PermissionResponded 事件流保持不变。
+3. src/session/schema.ts + db.ts — 补全 session 表字段
+permission_rules_json 之前只在 TypeScript SessionRow 类型中有，现在 Drizzle sessionTable 和原始 SQL CREATE TABLE 也加上了。
+4. src/tool/tool.ts — tool 执行时权限检查
+- ToolContext 新增 agentPermissions 字段
+- run() 执行前调用 checkToolPermission(name, ctx.agentPermissions)，拒绝时返回错误消息
+5. src/session/prompt.ts — AI SDK 路径权限拦截
+- 新增 wrapToolsWithPermissionCheck() — 包装每个 tool 的 execute 函数，执行前先查权限
+- 在调用 llm.generate() 前应用包装，拒绝的工具返回 "Permission denied" 字符串
+未改动（已满足需求）
+- wildcard.ts、arity.ts、permission/schema.ts、bus/bus-event.ts（权限事件）、agent/agent.ts（内置 agent 已有权限规则）— 这些文件原本已经实现完整，未做更改。
+验证：三个包（core、llm、opencode）bun typecheck 通过（exit 0），CLI --help 正常启动。

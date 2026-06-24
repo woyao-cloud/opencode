@@ -16,6 +16,7 @@ export interface SessionRow {
   agent_id: string
   model_id: string | null
   metadata_json: string | null   // JSON blob for arbitrary metadata
+  permission_rules_json: string | null  // JSON array of session-level permission rules
 }
 
 export interface MessageRow {
@@ -39,6 +40,7 @@ export const sessionTable = sqliteTable("session", {
   agent_id: text().default("default"),
   model_id: text(),
   metadata_json: text(),
+  permission_rules_json: text(),
 })
 
 export const messageTable = sqliteTable("message", {

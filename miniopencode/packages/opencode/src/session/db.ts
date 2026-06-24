@@ -41,7 +41,8 @@ function migrate() {
       updated_at INTEGER NOT NULL,
       agent_id TEXT DEFAULT 'default',
       model_id TEXT,
-      metadata_json TEXT
+      metadata_json TEXT,
+      permission_rules_json TEXT
     )
   `)
 
@@ -60,6 +61,16 @@ function migrate() {
   _db.run(`
     CREATE INDEX IF NOT EXISTS idx_message_session
     ON message(session_id, created_at)
+  `)
+
+  // Permission decision persistence — stores user "always allow/deny" choices
+  _db.run(`
+    CREATE TABLE IF NOT EXISTS permission_rule (
+      id TEXT PRIMARY KEY,
+      pattern TEXT NOT NULL,
+      action TEXT NOT NULL CHECK(action IN ('allow', 'deny')),
+      created_at INTEGER NOT NULL
+    )
   `)
 }
 

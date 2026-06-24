@@ -1,4 +1,5 @@
 import { Effect, Context, Schema } from "effect"
+import { checkToolPermission } from "@/permission/evaluate"
 
 // ── Tool Types ─────────────────────────────────────────────
 
@@ -12,7 +13,9 @@ export interface ToolContext {
   sessionID?: string
   messageID?: string
   agent?: string
+  agentPermissions?: ReadonlyArray<string>
   abort?: AbortSignal
+  extra?: Record<string, unknown>
 }
 
 export interface Def<Parameters extends Schema.Decoder<unknown> = Schema.Decoder<unknown>> {
@@ -74,23 +77,47 @@ export function makeRuntime(toolInfos: ReadonlyArray<Info<any>>): ToolRuntimeSha
     toolMap.set(info.id, info)
   }
 
-  // Eagerly init all tools — they have no Effect dependencies, so runSync is safe.
-  const defs = new Map<string, Def<any>>()
-  for (const info of toolInfos) {
-    const def = Effect.runSync(init(info))
-    defs.set(def.id, def)
+  // Init defs lazily - first tool execution triggers init.
+  // Eager init via Effect.runSync only works for tools without Effect dependencies.
+  const defPromises = new Map<string, Effect.Effect<Def<any>>>()
+
+  function ensureDef(name: string): Effect.Effect<Def<any>> {
+    const cached = defPromises.get(name)
+    if (cached) return cached
+
+    const info = toolMap.get(name)
+    if (!info) return Effect.die(new Error(`Tool not found: ${name}`))
+
+    // Try eager init first (for tools without Effect deps), fall back to lazy
+    const def = Effect.gen(function* () {
+      const d = yield* init(info)
+      return d as Def<any>
+    })
+
+    defPromises.set(name, def)
+    return def
   }
 
   function run(name: string, args: Record<string, unknown>, ctx?: ToolContext): Effect.Effect<string> {
-    const def = defs.get(name)
-    if (!def) return Effect.die(new Error(`Tool not found: ${name}`)) as any
-    const decode = Schema.decodeUnknownEffect(def.parameters)
-    return decode(args).pipe(
-      Effect.mapError((e) => new Error(`Invalid args for ${name}: ${e}`)),
-      Effect.orDie,
-      Effect.flatMap((decoded) => def.execute(decoded, ctx ?? {})),
-      Effect.map((r) => r.output),
-    ) as any
+    // Permission check before execution
+    const permissionAction = ctx?.agentPermissions
+      ? checkToolPermission(name, ctx.agentPermissions)
+      : undefined
+    if (permissionAction === "deny") {
+      return Effect.succeed(`Error: Permission denied — tool "${name}" is not allowed by current agent configuration.`)
+    }
+
+    return ensureDef(name).pipe(
+      Effect.flatMap((def) => {
+        const decode = Schema.decodeUnknownEffect(def.parameters)
+        return decode(args).pipe(
+          Effect.mapError((e) => new Error(`Invalid args for ${name}: ${e}`)),
+          Effect.orDie,
+          Effect.flatMap((decoded) => def.execute(decoded, ctx ?? {})),
+          Effect.map((r) => r.output),
+        ) as Effect.Effect<string>
+      }),
+    )
   }
 
   function toAI(): Record<string, {
@@ -99,16 +126,25 @@ export function makeRuntime(toolInfos: ReadonlyArray<Info<any>>): ToolRuntimeSha
     execute: (args: Record<string, unknown>) => Promise<string>
   }> {
     const result: Record<string, any> = {}
-    for (const [name, def] of defs) {
-      result[name] = {
-        description: def.description,
-        parameters: (Schema.toJsonSchemaDocument(def.parameters) as any).schema as Record<string, unknown>,
-        execute: async (rawArgs: Record<string, unknown>) => {
-          const decode = Schema.decodeUnknownEffect(def.parameters)
-          const decoded = Effect.runSync(decode(rawArgs).pipe(Effect.orDie) as any)
-          const execResult: any = Effect.runSync(def.execute(decoded, {}).pipe(Effect.orDie) as any)
-          return execResult.output
-        },
+    const seen = new Set<string>()
+
+    // Only expose tools that can be eagerly initialized (no Effect deps)
+    for (const info of toolInfos) {
+      try {
+        const def = Effect.runSync(init(info))
+        result[def.id] = {
+          description: def.description,
+          parameters: (Schema.toJsonSchemaDocument(def.parameters) as any).schema as Record<string, unknown>,
+          execute: async (rawArgs: Record<string, unknown>) => {
+            const decode = Schema.decodeUnknownEffect(def.parameters)
+            const decoded = Effect.runSync(decode(rawArgs).pipe(Effect.orDie) as any)
+            const execResult: any = Effect.runSync(def.execute(decoded, {}).pipe(Effect.orDie) as any)
+            return execResult.output
+          },
+        }
+        seen.add(def.id)
+      } catch {
+        // Tool has Effect deps — skip for toAI (used via task tool inside runtime)
       }
     }
     return result

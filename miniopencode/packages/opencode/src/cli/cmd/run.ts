@@ -8,9 +8,88 @@ import type { ResolvedModel } from "@/provider/schema"
 import { PromptService } from "@/session/prompt"
 import { SessionService } from "@/session/session"
 import { ToolRuntimeService } from "@/tool/tool"
+import { AgentService } from "@/agent/agent"
+import { BackgroundJobService } from "@/background/job"
+import { TaskTool, type TaskPromptOps } from "@/tool/task"
 import readline from "readline"
 
 const log = Log.create({ service: "cli.run" })
+
+// ── Build tools list including the task tool ─────────────────
+
+async function buildTools(opts: {
+  model?: string
+  baseURL?: string
+  apiKey?: string
+}): Promise<Record<string, unknown>> {
+  // Get basic tools from the registry
+  const basicTools = await AppRuntime.runPromise(
+    ToolRuntimeService.use((svc) => Effect.succeed(svc.toAITools())),
+  ) as Record<string, unknown>
+
+  // Create a subagent prompt function that runs inside the Effect runtime
+  const createTaskPrompt = async (sessionId: string, input: string, subagentType: string): Promise<string> => {
+    const result = await AppRuntime.runPromise(
+      Effect.gen(function* () {
+        const agent = yield* AgentService
+        const provider = yield* ProviderService
+        const prompt = yield* PromptService
+
+        // Get the subagent's model
+        const agentInfo = yield* agent.get(subagentType)
+        const model = yield* provider.resolve(agentInfo.model)
+
+        // Run the prompt
+        const output = yield* prompt.prompt({
+          sessionId,
+          userInput: input,
+          model,
+          tools: basicTools,
+        })
+        return output.text
+      }),
+    )
+    return result as string
+  }
+
+  // Wrap task tool as an AI SDK-compatible entry
+  const taskToolEntry = {
+    description: TaskTool.description,
+    parameters: (() => {
+      const schema = TaskTool.parameters as any
+      return schema.ast ? JSON.parse(JSON.stringify(schema.ast)) : {}
+    })(),
+    execute: async (args: Record<string, unknown>) => {
+      const params = args as { description: string; prompt: string; subagent_type: string; task_id?: string; background?: boolean }
+
+      // Create a new session for the subagent
+      const session: { id: string } = await AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const sessions = yield* SessionService
+          return yield* sessions.create({
+            title: `${params.description} (@${params.subagent_type} subagent)`,
+            agentId: params.subagent_type,
+          })
+        }),
+      ) as any
+
+      // Run the subagent prompt
+      const text = await createTaskPrompt(session.id, params.prompt, params.subagent_type)
+
+      return [
+        `task_id: ${session.id} (for resuming to continue this task if needed)`,
+        "",
+        "<task_result>",
+        text,
+        "</task_result>",
+      ].join("\n")
+    },
+  }
+
+  return { ...basicTools, task: taskToolEntry }
+}
+
+// ── Run Command (single prompt) ─────────────────────────────
 
 export async function runCommand(opts: {
   prompt?: string
@@ -21,12 +100,10 @@ export async function runCommand(opts: {
 }) {
   await init()
 
-  const tools = await AppRuntime.runPromise(
-    ToolRuntimeService.use((svc) => Effect.succeed(svc.toAITools())),
-  ) as any
+  const tools = await buildTools(opts)
 
   if (opts.interactive) {
-    return runInteractive({ model: opts.model, baseURL: opts.baseURL, apiKey: opts.apiKey, tools: tools as Record<string, unknown> })
+    return runInteractive({ model: opts.model, baseURL: opts.baseURL, apiKey: opts.apiKey, tools })
   }
 
   if (!opts.prompt) {
@@ -74,6 +151,8 @@ export async function runCommand(opts: {
 
   console.log("\n" + result.text)
 }
+
+// ── Interactive REPL Mode ───────────────────────────────────
 
 async function runInteractive(opts: {
   model?: string

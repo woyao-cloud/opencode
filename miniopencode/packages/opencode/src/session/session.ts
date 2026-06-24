@@ -40,8 +40,8 @@ export function makeSession(): Effect.Effect<SessionShape, never, BusService> {
     // All statements use positional ? parameters — bun:sqlite accepts
     // a plain array or an object with $‑prefixed keys for named params.
     const insertSession = db.prepare(`
-      INSERT INTO session (id, status, title, created_at, updated_at, agent_id, model_id, metadata_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO session (id, status, title, created_at, updated_at, agent_id, model_id, metadata_json, permission_rules_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const updateSessionStatus = db.prepare(`
@@ -67,11 +67,13 @@ export function makeSession(): Effect.Effect<SessionShape, never, BusService> {
             agent_id: opts?.agentId ?? "default",
             model_id: opts?.modelId ?? null,
             metadata_json: null,
+            permission_rules_json: null,
           }
           insertSession.run(
             row.id, row.status, row.title,
             row.created_at, row.updated_at,
             row.agent_id, row.model_id, row.metadata_json,
+            row.permission_rules_json,
           )
           yield* bus.publish(SessionCreated, { id })
           return row
@@ -148,6 +150,7 @@ function hydrateSessionRow(row: Record<string, unknown>): SessionRow {
     agent_id: row.agent_id as string,
     model_id: row.model_id as string | null,
     metadata_json: row.metadata_json as string | null,
+    permission_rules_json: row.permission_rules_json as string | null,
   }
 }
 

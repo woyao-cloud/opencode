@@ -8,6 +8,7 @@ import { ReadTool, WriteTool, BashTool, GlobTool, GrepTool } from "@/tool"
 import { ProviderService, makeProvider, type ProviderShape, ProviderLive } from "@/provider/index"
 import { SessionLive, LlmLive, PromptLive } from "@/session/index"
 import { BusLive } from "@/bus/index"
+import { BackgroundJobLive } from "@/background/job"
 
 // ── Service Layers (mix of Layer.succeed + Layer.effect) ─────
 
@@ -32,10 +33,12 @@ const toolLayer = Layer.succeed(ToolRuntimeService, runtime)
 // 3. Session — Effect-based, depends on BusService
 const sessionLayer = Layer.provide(SessionLive, BusLive)
 
-// 4. Provider/Agent/Permission — Effect-based, each depends on ConfigService
+// 4. Provider/Agent/Permission — Effect-based
+//    Provider + Agent depend on ConfigService; Permission also depends on BusService
 const providerLayer = Layer.provide(ProviderLive, configLayer)
 const agentLayer = Layer.provide(AgentLive, configLayer)
-const permissionLayer = Layer.provide(PermissionLive, configLayer)
+const permissionDeps = Layer.mergeAll(configLayer, BusLive)
+const permissionLayer = Layer.provide(PermissionLive, permissionDeps)
 
 // 5. Project — Effect-based, depends on ConfigService + AgentService + PermissionService
 const projectDeps = Layer.mergeAll(configLayer, agentLayer, permissionLayer)
@@ -52,4 +55,5 @@ export const InstanceLayer = Layer.mergeAll(
   sessionLayer,
   LlmLive,
   PromptLive,
+  BackgroundJobLive,
 )

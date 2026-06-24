@@ -9,4 +9,6 @@ export { GrepTool } from "./grep"
 
 export { truncateOutput, truncateLines } from "./truncate"
 
-export { ToolRuntimeLive } from "./registry"
+export { ToolRuntimeLive, getAllToolInfos } from "./registry"
+export { TaskTool } from "./task"
+export type { TaskPromptOps } from "./task"

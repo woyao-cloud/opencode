@@ -7,7 +7,7 @@ import { BashTool } from "./bash"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 
-// All tools have no Effect dependencies, so runSync is safe.
+// Basic tools — no Effect dependencies, can be eagerly initialized.
 const defaultToolInfos: ReadonlyArray<Info<any>> = [
   Effect.runSync(ReadTool),
   Effect.runSync(WriteTool),
@@ -15,6 +15,10 @@ const defaultToolInfos: ReadonlyArray<Info<any>> = [
   Effect.runSync(GlobTool),
   Effect.runSync(GrepTool),
 ]
+
+export function getAllToolInfos(): ReadonlyArray<Info<any>> {
+  return defaultToolInfos
+}
 
 export const ToolRuntimeLive = Layer.succeed(
   ToolRuntimeService,
