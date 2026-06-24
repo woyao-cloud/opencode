@@ -1,0 +1,15 @@
+{
+  "name": "ch14-advanced-concurrency",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:syncref": "bun run src/01-synchronized-ref.ts",
+    "demo:latch": "bun run src/02-latch.ts",
+    "demo:fibermap": "bun run src/03-fiber-map.ts",
+    "demo:cache": "bun run src/04-scoped-cache.ts",
+    "demo:pubsub": "bun run src/05-pubsub.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
