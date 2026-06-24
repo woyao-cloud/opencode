@@ -1,0 +1,20 @@
+{
+  "name": "ch17-internals",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "demo01": "npx tsx src/01-effect-internal.ts",
+    "demo02": "npx tsx src/02-fiber-runtime.ts",
+    "demo03": "npx tsx src/03-layer-resolution.ts",
+    "demo04": "npx tsx src/04-schema-ast.ts",
+    "demo05": "npx tsx src/05-stream-pull.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
