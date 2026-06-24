@@ -1,4 +1,5 @@
 import { Effect, Context, Layer } from "effect"
+import { ConfigService } from "@/config/config"
 import * as Log from "@miniopencode/core/util/log"
 import { evaluate } from "./evaluate"
 import type { Rule, Action } from "./schema"
@@ -36,4 +37,10 @@ export function makePermission(permissionConfig: MiniOpenCodeConfig["permission"
   }
 }
 
-export const PermissionLive = Layer.succeed(PermissionService, makePermission({}))
+export const PermissionLive = Layer.effect(
+  PermissionService,
+  Effect.gen(function* () {
+    const cfg = yield* ConfigService
+    return makePermission(cfg.config.permission)
+  }),
+)

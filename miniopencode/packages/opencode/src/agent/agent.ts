@@ -1,5 +1,6 @@
 import { Effect, Context, Layer } from "effect"
 import type { MiniOpenCodeConfig } from "@/config/config"
+import { ConfigService } from "@/config/config"
 
 export interface AgentInfo {
   readonly id: string
@@ -55,4 +56,10 @@ export function makeAgent(agentConfig: MiniOpenCodeConfig["agent"]): AgentShape 
   }
 }
 
-export const AgentLive = Layer.succeed(AgentService, makeAgent({ default: "default", agents: {} }))
+export const AgentLive = Layer.effect(
+  AgentService,
+  Effect.gen(function* () {
+    const cfg = yield* ConfigService
+    return makeAgent(cfg.config.agent)
+  }),
+)

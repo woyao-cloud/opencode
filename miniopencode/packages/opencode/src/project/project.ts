@@ -4,6 +4,9 @@ import { makeAgent } from "@/agent/agent"
 import type { AgentShape } from "@/agent/agent"
 import { makePermission } from "@/permission/index"
 import type { PermissionShape } from "@/permission/index"
+import { ConfigService } from "@/config/config"
+import { AgentService } from "@/agent/agent"
+import { PermissionService } from "@/permission/index"
 import type { MiniOpenCodeConfig } from "@/config/config"
 
 const log = Log.create({ service: "project" })
@@ -26,8 +29,15 @@ export function makeProject(directory: string, config: MiniOpenCodeConfig, agent
   }
 }
 
-// Standalone default layer; bootstrap.ts creates its own with real values.
-export const ProjectLive = Layer.succeed(
-  ProjectService,
-  makeProject("", { agent: {}, provider: {}, permission: {} } as MiniOpenCodeConfig, makeAgent({}), makePermission({})),
-)
+// Effect-based factory: reads ConfigService + AgentService + PermissionService
+export function makeProjectLive(directory: string): Layer.Layer<ProjectService, never, ConfigService | AgentService | PermissionService> {
+  return Layer.effect(
+    ProjectService,
+    Effect.gen(function* () {
+      const { config } = yield* ConfigService
+      const agent = yield* AgentService
+      const permission = yield* PermissionService
+      return makeProject(directory, config, agent, permission)
+    }),
+  )
+}

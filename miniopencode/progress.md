@@ -91,3 +91,14 @@ Phase D — 模块补齐
 | D4 | LSP + Shell/PTY + Format | lsp/*, shell/*, format/* |
 Phase E — 外围功能
 > MCP/ACP/存储迁移/安装/TUI/测试/文档
+
+
+Phase A4 — Layer DI Refactoring (all 6/6 tasks verified):
+1. ProviderLive — Changed from Layer.succeed(makeProvider({}, envModel)) to Layer.effect reading config from ConfigService
+2. AgentLive — Same pattern: now reads agent config from ConfigService
+3. PermissionLive — Same pattern: reads permission config from ConfigService
+4. ProjectLive — Created makeProjectLive(dir) as an Effect-based layer factory that composes ConfigService, AgentService, and PermissionService
+5. bootstrap.ts — Restructured from pre-computed sync values to Layer.provide wiring. Each service's dependencies are explicitly satisfied before merge
+6. Verification — Typecheck passes (exit 0), app boots and responds correctly
+Current project state: 46 source files across config, permission, agent, provider, tools (5), session, bus, project bootstrap, CLI (run + session commands), and effect infrastructure.
+The next phase per the 500-iteration plan is Phase 5: Prompt Engine (iterations 111-140) — the core LLM interaction loop with tool execution, message construction, and system prompt assembly. Want me to start on that, or is there a different priority?

@@ -1,4 +1,5 @@
 import { Effect, Context, Layer } from "effect"
+import { ConfigService } from "@/config/config"
 import * as Log from "@miniopencode/core/util/log"
 import type { ProviderID, ModelID } from "@miniopencode/llm"
 import type { ProviderConfig, ResolvedModel, ProviderEntry } from "./schema"
@@ -58,16 +59,14 @@ export function makeProvider(providerConfig: ProviderConfig | undefined, envMode
   return { resolve, defaultModel }
 }
 
-// ── Layer ───────────────────────────────────────────────────
+// ── Layer (Effect-based: reads config from ConfigService) ──
 
-export const ProviderLive = Layer.succeed(
+export const ProviderLive = Layer.effect(
   ProviderService,
-  (() => {
-    // Bootstrap reads config later; this layer gets overridden by bootstrap.
-    // The real one is created in project/bootstrap.ts with full config access.
-    const envModel = process.env.MINICODE_MODEL ?? process.env.MINICODE_MODEL
-    return makeProvider({}, envModel)
-  })(),
+  Effect.gen(function* () {
+    const cfg = yield* ConfigService
+    return makeProvider(cfg.config.provider, process.env.MINICODE_MODEL)
+  }),
 )
 
 export * as Provider from "."
