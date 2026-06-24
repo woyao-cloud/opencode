@@ -5,9 +5,9 @@
  *
  * 此模式源自 OpenCode 的 production 代码：
  *   1. 用 Config 声明"配置来自哪里"
- *   2. 用 Context.GenericTag 声明"谁需要这些配置"
+ *   2. 用 Context.Service 类声明"谁需要这些配置"
  *   3. 用 Layer.effect 将 Config 值注入 Context
- *   4. 业务代码只需 yield* Tag，不关心配置来源
+ *   4. 业务代码只需 yield* Service，不关心配置来源
  *
  * 运行: bun run src/04-runtime-flags-pattern.ts
  */
@@ -15,11 +15,12 @@
 import { Config, ConfigProvider, Context, Effect, Layer } from "effect"
 
 // ============================================================
-// 第 1 步: 定义 RuntimeFlags 接口
+// 第 1 步: 定义 RuntimeFlags 服务 (Context.Service 类模式)
 // ============================================================
-// 将所有运行时标志集中在一个接口中，便于管理和类型推导。
+// Effect 4.0 中，服务通过 Context.Service 类声明。
+// 类模式同时提供类型标记和依赖获取器两个功能。
 
-interface RuntimeFlags {
+class RuntimeFlags extends Context.Service<RuntimeFlags, {
   /** 是否启用调试模式 */
   readonly debug: boolean
   /** 是否启用 AI 功能 */
@@ -30,17 +31,10 @@ interface RuntimeFlags {
   readonly maxConcurrency: number
   /** 日志级别 */
   readonly logLevel: "debug" | "info" | "warn" | "error"
-}
+}>()("RuntimeFlags") {}
 
 // ============================================================
-// 第 2 步: 创建 Context.GenericTag
-// ============================================================
-// 业务代码通过 yield* RuntimeFlags 获取标志，不关心配置来源。
-
-const RuntimeFlags = Context.GenericTag<RuntimeFlags>("RuntimeFlags")
-
-// ============================================================
-// 第 3 步: 用 Config 声明配置映射
+// 第 2 步: 用 Config 声明配置映射
 // ============================================================
 // 每个标志对应一个 Config，声明了从 ConfigProvider 中
 // 如何读取和验证该标志的值。
@@ -57,15 +51,12 @@ const runtimeFlagsConfig = Config.all({
 })
 
 // ============================================================
-// 第 4 步: 构建 Layer — 将 Config 值注入 Context
+// 第 3 步: 构建 Layer — 将 Config 值注入 Context
 // ============================================================
-// Layer.effect 从 Config 读取值，然后通过 Layer.succeed
-// 将其注入 Context。
-//
+// Layer.effect(Service)(effect) 从 Config 读取值并注入 Context。
 // 这层 Layer 是"配置 → 服务"的桥梁。
 
-const RuntimeFlagsLive = Layer.effect(
-  RuntimeFlags,
+const RuntimeFlagsLive = Layer.effect(RuntimeFlags)(
   Effect.gen(function* () {
     // yield* Config 从上下文的 ConfigProvider 读取配置
     const flags = yield* runtimeFlagsConfig
@@ -78,7 +69,7 @@ console.log("RuntimeFlags 模式 — 配置 → Context → 业务")
 console.log("=".repeat(60))
 
 // ============================================================
-// 第 5 步: 在业务代码中使用 RuntimeFlags
+// 第 4 步: 在业务代码中使用 RuntimeFlags
 // ============================================================
 // 业务代码只需 yield* RuntimeFlags，完全不关心配置细节。
 
@@ -111,22 +102,22 @@ const businessLogic = Effect.gen(function* () {
 })
 
 // ============================================================
-// 第 6 步: 组装并运行
+// 第 5 步: 组装并运行
 // ============================================================
-// 提供 ConfigProvider 和 RuntimeFlagsLive Layer
+// Layer.provide 将 ConfigProvider Layer 提供给 RuntimeFlagsLive
+
+const configProviderLayer = ConfigProvider.layer(
+  ConfigProvider.fromUnknown({
+    DEBUG: "true",
+    AI: "yes",
+    TELEMETRY: "false",
+    MAX_CONCURRENCY: 8,
+    LOG_LEVEL: "debug"
+  })
+)
 
 const appLayer = RuntimeFlagsLive.pipe(
-  Layer.provide(
-    ConfigProvider.layer(
-      ConfigProvider.fromUnknown({
-        DEBUG: "true",
-        AI: "yes",
-        TELEMETRY: "false",
-        MAX_CONCURRENCY: 8,
-        LOG_LEVEL: "debug"
-      })
-    )
-  )
+  Layer.provide(configProviderLayer)
 )
 
 const result = Effect.runSync(Effect.provide(businessLogic, appLayer))
@@ -134,7 +125,7 @@ const result = Effect.runSync(Effect.provide(businessLogic, appLayer))
 console.log("\n业务逻辑返回:", result)
 
 // ============================================================
-// 第 7 步: 演示不同配置环境
+// 第 6 步: 演示不同配置环境
 // ============================================================
 // 同样的业务代码，不同的配置 → 不同的行为。
 // 这就是 RuntimeFlags 模式的核心价值。
@@ -176,26 +167,23 @@ console.log("\n[测试环境]")
 const testResult = Effect.runSync(Effect.provide(businessLogic, testLayer))
 
 // ============================================================
-// 第 8 步: 扩展模式 — 多个服务组合
+// 第 7 步: 扩展模式 — 多个服务组合
 // ============================================================
 // RuntimeFlags 只是其中一个服务。真实应用中，你可以有多个
 // 这样的"配置驱动服务"。
 
-interface DatabaseConfig {
+class DatabaseConfig extends Context.Service<DatabaseConfig, {
   readonly host: string
   readonly port: number
-}
+}>()("DatabaseConfig") {}
 
-const DatabaseConfig = Context.GenericTag<DatabaseConfig>("DatabaseConfig")
-
-const databaseConfigLive = Layer.effect(
-  DatabaseConfig,
+const databaseConfigLive = Layer.effect(DatabaseConfig)(
   Effect.gen(function* () {
     const host = yield* Config.string("DATABASE_HOST")
     const port = yield* Config.port("DATABASE_PORT").pipe(
       Config.withDefault(5432)
     )
-    return { host, port } as DatabaseConfig
+    return { host, port }
   })
 )
 
@@ -240,16 +228,15 @@ console.log("✅ 组合结果:", combinedResult)
 // 总结
 // ============================================================
 console.log("\n" + "=".repeat(60))
-console.log("总结: RuntimeFlags 模式")
+console.log("总结: RuntimeFlags 模式 (Context.Service 类)")
 console.log("=".repeat(60))
-console.log("  1. 定义 RuntimeFlags 接口 — 所有标志集中管理")
-console.log("  2. Context.GenericTag<T>  — 声明服务依赖")
-console.log("  3. Config.all({...})     — 声明配置读取方式")
-console.log("  4. Layer.effect(Tag, ...)— 将 Config 值注入 Context")
-console.log("  5. 业务代码 yield* Tag   — 只关心值，不关心来源")
+console.log("  1. 定义 Service 类    — class X extends Context.Service<X, Shape>()('Name') {}")
+console.log("  2. Config.all({...})  — 声明配置读取方式")
+console.log("  3. Layer.effect(Svc)(effect) — 将 Config 值注入 Context")
+console.log("  4. 业务代码 yield* Svc — 只关心值，不关心来源")
 console.log("")
 console.log("  优势:")
-console.log("  - 类型安全: 每个标志的类型由接口保证")
+console.log("  - 类型安全: 每个标志的类型由 Service 类保证")
 console.log("  - 可测试: 用 Layer.succeed 直接注入测试值")
 console.log("  - 可组合: Layer.mergeAll 组合多个配置服务")
 console.log("  - 环境无关: 同一业务代码，不同 ConfigProvider 不同行为")

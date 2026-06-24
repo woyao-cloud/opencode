@@ -66,10 +66,7 @@ console.log("=".repeat(60))
 console.log("✅ Schema 解析结果:", result2a)
 
 // 2b. 使用 Schema 的变换能力 — 从字符串解析 URL
-const UrlConfig = Config.schema(
-  Schema.compose(Schema.URL, Schema.String),
-  "SERVICE_URL"
-)
+const UrlConfig = Config.schema(Schema.URLFromString, "SERVICE_URL")
 
 const urlProvider = ConfigProvider.fromUnknown({
   SERVICE_URL: "https://api.example.com/v2"
@@ -220,7 +217,9 @@ console.log("✅ 服务器:", result5.server)
 
 const StrictConfig = Config.schema(
   Schema.Struct({
-    port: Schema.Int.pipe(Schema.between(1, 65535)),
+    port: Schema.Int.pipe(
+      Schema.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))
+    ),
     env: Schema.Literal("production", "staging")
   })
 )

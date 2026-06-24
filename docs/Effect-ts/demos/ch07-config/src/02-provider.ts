@@ -7,7 +7,7 @@
  * 运行: bun run src/02-provider.ts
  */
 
-import { Config, ConfigProvider, Effect } from "effect"
+import { Config, ConfigProvider, Effect, Layer } from "effect"
 
 // ============================================================
 // 1. ConfigProvider.fromUnknown — 从 JSON 对象读取配置
@@ -254,18 +254,24 @@ console.log("✅ Layer 方式提供:", result7)
 // layerAdd 将新 Provider 与当前已有的合并（通过 orElse），
 // 而不是替换。默认新 Provider 作为回退；设置 asPrimary: true
 // 让它成为主源。
+//
+// 下面演示: 先用 layer 安装基础 Provider，再用 layerAdd
+// 追加默认值 Provider。当基础 Provider 缺少 PORT 时，
+// 回退到默认值。
 
-// 先安装一个基础 Provider，再通过 layerAdd 追加默认值
-const baseLayer = ConfigProvider.layer(
-  ConfigProvider.fromUnknown({ HOST: "base.local" })
-)
+const layerAddBaseProvider = ConfigProvider.fromUnknown({ HOST: "base.local" })
+// PORT 故意不提供，让默认值层生效
 
-const defaultsProvider = ConfigProvider.fromUnknown({
+const layerAddDefaultsProvider = ConfigProvider.fromUnknown({
   HOST: "default.local",
   PORT: 3000
 })
 
-const addLayer = ConfigProvider.layerAdd(defaultsProvider)
+// 构建双层 Layer: 基础 + 默认值回退
+const combinedLayer = Layer.provide(
+  ConfigProvider.layerAdd(layerAddDefaultsProvider),
+  ConfigProvider.layer(layerAddBaseProvider)
+)
 
 const layerAddProgram = Effect.gen(function* () {
   const host = yield* Config.string("HOST")
@@ -273,14 +279,12 @@ const layerAddProgram = Effect.gen(function* () {
   return { host, port }
 })
 
-const result8 = Effect.runSync(
-  Effect.provide(layerAddProgram, baseLayer.pipe(Layer.provide(addLayer)))
-)
+const result8 = Effect.runSync(Effect.provide(layerAddProgram, combinedLayer))
 
 console.log("\n" + "=".repeat(60))
 console.log("8. ConfigProvider.layerAdd — 追加 Provider")
 console.log("=".repeat(60))
-console.log("✅ HOST 来自基础层, PORT 来自追加层:", result8)
+console.log("✅ HOST 来自基础层, PORT 来自默认值层:", result8)
 
 // ============================================================
 // 9. 总结
