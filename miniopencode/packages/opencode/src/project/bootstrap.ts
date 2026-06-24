@@ -6,7 +6,7 @@ import { ProjectService, makeProject, makeProjectLive } from "./project"
 import { ToolRuntimeService, makeRuntime } from "@/tool/tool"
 import { ReadTool, WriteTool, BashTool, GlobTool, GrepTool } from "@/tool"
 import { ProviderService, makeProvider, type ProviderShape, ProviderLive } from "@/provider/index"
-import { SessionLive } from "@/session/session"
+import { SessionLive, LlmLive, PromptLive } from "@/session/index"
 import { BusLive } from "@/bus/index"
 
 // ── Service Layers (mix of Layer.succeed + Layer.effect) ─────
@@ -50,4 +50,6 @@ export const InstanceLayer = Layer.mergeAll(
   permissionLayer,
   projectLayer,
   sessionLayer,
+  LlmLive,
+  PromptLive,
 )

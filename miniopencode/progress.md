@@ -93,7 +93,7 @@ Phase E — 外围功能
 > MCP/ACP/存储迁移/安装/TUI/测试/文档
 
 
-Phase A4 — Layer DI Refactoring (all 6/6 tasks verified):
+# Phase A4 — Layer DI Refactoring (all 6/6 tasks verified):
 1. ProviderLive — Changed from Layer.succeed(makeProvider({}, envModel)) to Layer.effect reading config from ConfigService
 2. AgentLive — Same pattern: now reads agent config from ConfigService
 3. PermissionLive — Same pattern: reads permission config from ConfigService
@@ -102,3 +102,19 @@ Phase A4 — Layer DI Refactoring (all 6/6 tasks verified):
 6. Verification — Typecheck passes (exit 0), app boots and responds correctly
 Current project state: 46 source files across config, permission, agent, provider, tools (5), session, bus, project bootstrap, CLI (run + session commands), and effect infrastructure.
 The next phase per the 500-iteration plan is Phase 5: Prompt Engine (iterations 111-140) — the core LLM interaction loop with tool execution, message construction, and system prompt assembly. Want me to start on that, or is there a different priority?
+
+# Phase 5 — Prompt Engine is complete. Here's the summary:
+New files created (4):
+| File | Purpose |
+|---|---|
+| session/system.ts | System prompt builder — composes agent info, tool descriptions, and instructions into a coherent system prompt string |
+| session/instruction.ts | Instruction module — default set of behavioral rules for tool usage (use grep/glob to search, read before write, etc.) |
+| session/llm.ts | LlmService — wraps LLM.generate from the llm package with 1-retry logic and tool step collection (aligned call/result pairs) |
+| session/prompt.ts | PromptService — core engine that: (1) builds system prompt from agent config, (2) persists user message, (3) converts session messages to LLM format, (4) calls LlmService with tool collection, (5) persists each tool call/result pair, (6) persists final assistant response |
+Existing files modified (3):
+| File | Change |
+|---|---|
+| session/index.ts | Created — exports all four new modules + re-exports existing session modules |
+| project/bootstrap.ts | Added LmLive + PromptLive to InstanceLayer |
+| cli/cmd/run.ts | Refactored from manual LLM.generate + inline persistence to PromptService.prompt() — both single-shot and interactive modes |
+Verification: Typecheck passes (exit 0), app boots and responds correctly (exit 0). The LLM interaction loop, message persistence, and tool execution cycles are now managed by the PromptService instead of being inlined in run.ts.
