@@ -8,20 +8,33 @@ export interface Shape {
   readonly run: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E>
 }
 
-export function make(): Effect.Effect<Shape, unknown, unknown> {
+function captureSync() {
+  const fiber = Fiber.getCurrent()
+  const instance = fiber ? Context.getReferenceUnsafe(fiber.context, InstanceRef) : undefined
+  const workspace = fiber ? Context.getReferenceUnsafe(fiber.context, WorkspaceRef) : undefined
+  return { instance, workspace }
+}
+
+export function make(): Effect.Effect<Shape> {
   return Effect.gen(function* () {
     const ctx = yield* Effect.context()
-    const instance = (yield* InstanceRef) as any
-    const workspace = (yield* WorkspaceRef) as any
-    const wrap = <A, E, R>(effect: Effect.Effect<A, E, R>): any =>
-      attachWith(effect.pipe(Effect.provide(ctx)) as any, { instance, workspace }) as any
+    const captured = captureSync()
+    const instance = (yield* InstanceRef) ?? captured.instance
+    const workspace = (yield* WorkspaceRef) ?? captured.workspace
+    const wrap = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      attachWith(effect.pipe(Effect.provide(ctx)) as Effect.Effect<A, E, never>, { instance, workspace })
+
     return {
-      promise: <A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> => Effect.runPromise(wrap(effect)) as any,
-      fork: <A, E, R>(effect: Effect.Effect<A, E, R>): Fiber.Fiber<A, E> => Effect.runFork(wrap(effect)) as any,
-      run: <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E> =>
-        Effect.tryPromise(() => Effect.runPromise(wrap(effect))) as any,
+      promise: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(wrap(effect)),
+      fork: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runFork(wrap(effect)),
+      run: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        Effect.callback<A, E>((resume) => {
+          Effect.runPromiseExit(wrap(effect)).then((exit) =>
+            resume(Exit.isSuccess(exit) ? Effect.succeed(exit.value) : Effect.failCause(exit.cause)),
+          )
+        }),
     } as Shape
-  }) as any
+  })
 }
 
 export * as EffectBridge from "./bridge"

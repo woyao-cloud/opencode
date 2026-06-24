@@ -1,5 +1,11 @@
 import { Context } from "effect"
 
 export interface InstanceContext { readonly directory: string; readonly worktree: string }
-export class InstanceRef extends Context.Service<InstanceRef, InstanceContext>()("@miniopencode/InstanceRef") {}
-export class WorkspaceRef extends Context.Service<WorkspaceRef, string | undefined>()("@miniopencode/WorkspaceRef") {}
+
+export const InstanceRef = Context.Reference<InstanceContext | undefined>("@miniopencode/InstanceRef", {
+  defaultValue: () => undefined,
+})
+
+export const WorkspaceRef = Context.Reference<string | undefined>("@miniopencode/WorkspaceRef", {
+  defaultValue: () => undefined,
+})

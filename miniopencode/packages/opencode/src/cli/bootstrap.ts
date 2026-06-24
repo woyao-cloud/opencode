@@ -7,13 +7,11 @@ import { InstanceLayer } from "@/project/bootstrap"
 
 const log = Log.create({ service: "bootstrap" })
 
-// Dynamic layers: these vary per CLI invocation (working directory, etc.)
+// Dynamic layers: InstanceRef/WorkspaceRef are Context.Reference with defaultValue undefined.
+// Provide concrete values per invocation (working directory, etc.)
 const refLayer = Layer.succeed(InstanceRef, { directory: process.cwd(), worktree: "/" })
 const wsLayer = Layer.succeed(WorkspaceRef, "/")
 
-// Merge dynamic layers with the pre-computed service layer.
-// InstanceLayer provides all business services via Layer.succeed, so
-// Layer.mergeAll resolves cleanly — no Layer.provide needed.
 export const AppLayer = Layer.mergeAll(refLayer, wsLayer, InstanceLayer)
 
 const rt = ManagedRuntime.make(AppLayer)
