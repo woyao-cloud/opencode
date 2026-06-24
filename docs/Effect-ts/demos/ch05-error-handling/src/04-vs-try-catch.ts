@@ -8,7 +8,7 @@
  * 运行: bun run src/04-vs-try-catch.ts
  */
 
-import { Effect, Schema, Console } from "effect"
+import { Effect, Schema } from "effect"
 
 // ============================================================
 // 场景: 从 API 获取用户数据，然后更新用户名
@@ -57,7 +57,7 @@ interface User {
 
 console.log("=== 方式 A: 传统 try/catch ===\n")
 
-// 问题 1: 类型签名为 void，看不出可能抛出什么错误
+// 问题 1: 类型签名为 Promise<User>，看不出可能抛出什么错误
 async function updateUserNameTryCatch(userId: number, newName: string): Promise<User> {
   // 校验名称
   if (newName.length === 0) {
@@ -221,10 +221,10 @@ async function effectDemo() {
   )
   console.log("✅ 正确处理:", result4)
 
-  // 场景 5: 统一处理所有已知错误
+  // 场景 5: 统一处理所有已知错误 (Effect.catch)
   const result5 = await Effect.runPromise(
     updateUserNameEffect(404, "测试").pipe(
-      Effect.catchAll((err) =>
+      Effect.catch((err) =>
         Effect.succeed(`统一处理: ${err._tag} — ${err.message}`),
       ),
     ),
@@ -245,14 +245,14 @@ console.log("--------------|------------------------------|---------------------
 console.log("错误类型      | unknown，需 instanceof       | 签名中明确声明")
 console.log("类型安全      | 无编译时检查                 | 编译器强制处理")
 console.log("精确捕获      | if/else instanceof 链       | catchTag 按 _tag 匹配")
-console.log("恢复策略      | 只能在 catch 中处理          | retry / orElse / either")
+console.log("恢复策略      | 只能在 catch 中处理          | retry / catch / orElseSucceed")
 console.log("可组合性      | 难以组合多个错误处理         | pipe 链式组合")
 console.log("文档化        | 需要 JSDoc 描述可能错误      | 类型签名即文档")
 
 console.log("\n核心差异:")
 console.log("  1. Effect 的错误类型是签名的一部分，TypeScript 编译器能检查你是否处理了所有错误")
 console.log("  2. catchTag 让你按错误 _tag 精确捕获，比 instanceof 链更可靠")
-console.log("  3. Effect 提供重试、降级、Either 转换等丰富的恢复策略")
+console.log("  3. Effect 提供重试、降级、Exit 转换等丰富的恢复策略")
 console.log("  4. 错误处理逻辑通过 pipe 组合，而不是嵌套的 try/catch")
 
 console.log("\n✅ 04-vs-try-catch.ts 运行完成")

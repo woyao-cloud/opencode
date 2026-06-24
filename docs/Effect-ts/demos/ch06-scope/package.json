@@ -1,0 +1,14 @@
+{
+  "name": "ch06-scope",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:acquire": "bun run src/01-acquire-release.ts",
+    "demo:fork": "bun run src/02-scope-fork.ts",
+    "demo:finalizer": "bun run src/03-finalizer.ts",
+    "demo:file": "bun run src/04-file-handle-demo.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}

@@ -1,12 +1,15 @@
 /**
- * 01-catch-patterns.ts — catchTag / catchAll / catchSome
+ * 01-catch-patterns.ts — catchTag / catch / catchIf
  *
  * 演示 Effect-TS 的三种错误捕获模式：
  * - Effect.catchTag: 按错误 _tag 精确捕获
- * - Effect.catchAll: 捕获所有错误
- * - Effect.catchSome: 选择性捕获部分错误
+ * - Effect.catch: 捕获所有错误（beta.65 中 catchAll 已不存在）
+ * - Effect.catchIf: 选择性捕获部分错误（beta.65 中 catchSome 已不存在）
  *
- * 注意: beta.65 使用 Effect.catchTag（单数），不是 Effect.catchTags。
+ * 注意: beta.65 的 API:
+ *   - Effect.catchTag（单数）按 _tag 匹配
+ *   - Effect.catch 捕获所有错误
+ *   - Effect.catchIf(predicate, handler) 选择性捕获
  * 错误类型使用 Schema.Class + 显式 _tag 字段（TaggedErrorClass 在 Bun 下有兼容问题）。
  *
  * 运行: bun run src/01-catch-patterns.ts
@@ -123,16 +126,17 @@ Effect.runPromise(program1b).then(
 )
 
 // ============================================================
-// 4. Effect.catchAll — 捕获所有错误
+// 4. Effect.catch — 捕获所有错误
 // ============================================================
 
-console.log("\n=== 2. Effect.catchAll — 捕获所有错误 ===\n")
+console.log("\n=== 2. Effect.catch — 捕获所有错误 ===\n")
 
-// catchAll 捕获所有类型的错误，将 Effect<E, A> 变为 Effect<never, A>
+// catch 捕获所有类型的错误，将 Effect<E, A> 变为 Effect<never, A>
 // 注意: 类型签名中 E 变为 never — 编译器知道错误已全部处理
+// beta.65: 使用 Effect.catch，不是 Effect.catchAll
 const program2 = Effect.gen(function* () {
   const result = yield* validateData("").pipe(
-    Effect.catchAll((err: ValidationError) =>
+    Effect.catch((err: ValidationError) =>
       Effect.succeed(`校验失败已处理: ${err.field} — ${err.message}`)
     ),
   )
@@ -141,10 +145,10 @@ const program2 = Effect.gen(function* () {
 
 Effect.runPromise(program2).then((result) => console.log("成功:", result))
 
-// catchAll 处理多类型错误
+// catch 处理多类型错误
 const program2b = Effect.gen(function* () {
   const result = yield* fetchUser(403).pipe(
-    Effect.catchAll((err: NetworkError | AuthError) => {
+    Effect.catch((err: NetworkError | AuthError) => {
       // 可以在这里根据错误类型做不同处理
       if (err._tag === "NetworkError") {
         return Effect.succeed(`网络问题，稍后重试: ${err.message}`)
@@ -158,46 +162,39 @@ const program2b = Effect.gen(function* () {
 Effect.runPromise(program2b).then((result) => console.log("成功:", result))
 
 // ============================================================
-// 5. Effect.catchSome — 选择性捕获
+// 5. Effect.catchIf — 选择性捕获
 // ============================================================
 
-console.log("\n=== 3. Effect.catchSome — 选择性捕获 ===\n")
+console.log("\n=== 3. Effect.catchIf — 选择性捕获 ===\n")
 
-// catchSome 允许你返回 Option 来决定是否处理该错误
-// 返回 Some(value) → 处理该错误
-// 返回 None → 错误继续传播
+// catchIf(predicate, handler) — 只有 predicate 返回 true 才处理
+// beta.65: 使用 Effect.catchIf，不是 Effect.catchSome
 const program3 = Effect.gen(function* () {
   const result = yield* fetchUser(0).pipe(
-    Effect.catchSome((err: NetworkError | AuthError) => {
-      // 只处理 4xx 的网络错误
-      if (err._tag === "NetworkError" && err.statusCode >= 400 && err.statusCode < 500) {
-        return Effect.succeed(`客户端错误已处理: ${err.message}`)
-      }
-      // 其他错误不处理，继续传播
-      return undefined // undefined 表示"不处理此错误"
-    }),
+    Effect.catchIf(
+      (err: NetworkError | AuthError) => err._tag === "NetworkError" && err.statusCode >= 400 && err.statusCode < 500,
+      (err: NetworkError) => Effect.succeed(`客户端错误已处理: ${err.message}`),
+    ),
   )
   return result
 })
 
 Effect.runPromise(program3).then((result) => console.log("成功:", result))
 
-// 演示: catchSome 不匹配时错误继续传播
+// 演示: catchIf predicate 不匹配时错误继续传播
 const program3b = Effect.gen(function* () {
   const result = yield* fetchUser(403).pipe(
-    Effect.catchSome((err: NetworkError | AuthError) => {
-      if (err._tag === "NetworkError") {
-        return Effect.succeed(`网络错误已处理`)
-      }
-      return undefined // AuthError 不处理
-    }),
+    Effect.catchIf(
+      (err: NetworkError | AuthError) => err._tag === "NetworkError",
+      (err: NetworkError) => Effect.succeed(`网络错误已处理`),
+    ),
   )
   return result
 })
 
 Effect.runPromise(program3b).then(
   (result) => console.log("成功:", result),
-  (err) => console.log("AuthError 未被 catchSome 处理，向上传播:", err.description),
+  (err) => console.log("AuthError 未被 catchIf 处理，向上传播:", err.description),
 )
 
 // ============================================================
@@ -210,13 +207,13 @@ console.log("\n=== 4. 错误处理后的类型签名变化 ===\n")
 // catchTag("NetworkError") 后: Effect<never, AuthError, string>
 //   — NetworkError 被移除，AuthError 仍在
 //
-// catchAll 后: Effect<never, never, string>
+// catch 后: Effect<never, never, string>
 //   — 所有错误都被移除
 //
-// catchSome 后: Effect<never, NetworkError | AuthError, string>
-//   — 错误类型不变（因为可能不处理）
+// catchIf 后: Effect<never, NetworkError | AuthError, string>
+//   — 错误类型不变（因为 predicate 可能不匹配）
 
-// 使用 Effect.either 观察类型变化
+// 演示类型变化
 const typedExample = fetchUser(42).pipe(
   // 此时类型: Effect<never, NetworkError | AuthError, string>
   Effect.catchTag("NetworkError", (err) =>

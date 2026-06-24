@@ -3,17 +3,19 @@
  *
  * 演示 Effect-TS 的错误恢复手段：
  * - Effect.retry: 使用 Schedule 控制重试
- * - Effect.orElse: 失败时切换到降级方案
+ * - Effect.catch: 失败时切换到降级方案（beta.65 中 orElse 已不存在）
  * - Effect.orElseSucceed: 失败时返回默认值
- * - Effect.either: 将错误转为 Either 类型（永不失败）
+ * - Effect.exit: 将错误转为 Exit 类型（beta.65 中 either 已不存在）
  *
- * 注意: beta.65 中 Effect.retry 签名需要传入 Effect 和 Schedule 两个参数，
- * 或使用 pipe + Effect.retry(schedule) 的形式。
+ * 注意: beta.65 的 API 变化:
+ *   - Effect.retry(schedule) 重试
+ *   - Effect.catch(() => fallback) 替代 orElse
+ *   - Effect.exit 替代 either
  *
  * 运行: bun run src/03-recovery-strategies.ts
  */
 
-import { Effect, Schedule } from "effect"
+import { Effect, Schedule, Duration, Exit } from "effect"
 
 // ============================================================
 // 1. Effect.retry — 使用 Schedule 控制重试
@@ -53,9 +55,9 @@ callCount = 0
 
 const program2 = unstableService.pipe(
   Effect.retry(
-    Schedule.exponential("100 milliseconds").pipe(
+    Schedule.exponential(Duration.millis(100)).pipe(
       // 最多 3 次重试
-      Schedule.compose(Schedule.recurs(3)),
+      Schedule.andThen(Schedule.recurs(3)),
     ),
   ),
 )
@@ -68,10 +70,13 @@ Effect.runPromise(program2).then((result) => {
 })
 
 // ============================================================
-// 3. Effect.orElse — 失败时切换到降级方案
+// 3. Effect.catch — 失败时切换到降级方案
 // ============================================================
 
-console.log("\n=== 3. Effect.orElse — 失败时切换到降级方案 ===\n")
+console.log("\n=== 3. Effect.catch — 失败时切换到降级方案 ===\n")
+
+// beta.65: 使用 Effect.catch 替代 orElse
+// Effect.catch 捕获所有错误，可返回新的 Effect（可能仍有错误）
 
 // 主服务
 const primaryService = (fail: boolean): Effect.Effect<string, Error> =>
@@ -83,21 +88,21 @@ const primaryService = (fail: boolean): Effect.Effect<string, Error> =>
   })
 
 // 降级服务（备用方案）
-const fallbackService = (): Effect.Effect<string, Error> =>
+const fallbackService = (): Effect.Effect<string> =>
   Effect.succeed("降级缓存数据")
 
-// orElse: 主服务失败时使用降级服务
+// catch 作为降级: 主服务失败时使用降级服务
 const program3a = primaryService(true).pipe(
-  Effect.orElse(() => fallbackService()),
+  Effect.catch(() => fallbackService()),
 )
 
 Effect.runPromise(program3a).then((result) =>
   console.log("主服务失败 → 降级结果:", result),
 )
 
-// 主服务成功时 orElse 不执行
+// 主服务成功时 catch 不执行
 const program3b = primaryService(false).pipe(
-  Effect.orElse(() => fallbackService()),
+  Effect.catch(() => fallbackService()),
 )
 
 Effect.runPromise(program3b).then((result) =>
@@ -110,8 +115,7 @@ Effect.runPromise(program3b).then((result) =>
 
 console.log("\n=== 4. Effect.orElseSucceed — 失败时返回默认值 ===\n")
 
-// orElseSucceed 比 orElse + Effect.succeed 更简洁
-// 它将 Effect<E, A> 变为 Effect<never, A>
+// orElseSucceed 将 Effect<E, A> 变为 Effect<never, A>
 
 const riskyOperation = (fail: boolean): Effect.Effect<number, Error> =>
   Effect.gen(function* () {
@@ -140,9 +144,10 @@ Effect.runPromise(program4b).then((result) =>
 )
 
 // 链式恢复: 多层降级策略
+// catch 捕获失败 → 尝试缓存 → 如果也失败 → 返回默认值
 const program4c = riskyOperation(true).pipe(
   // 第一层: 尝试从缓存恢复
-  Effect.orElse(() => Effect.succeed(100)),
+  Effect.catch(() => Effect.succeed(100)),
   // 第二层: 如果上面也失败，返回默认值
   Effect.orElseSucceed(() => 0),
 )
@@ -152,13 +157,14 @@ Effect.runPromise(program4c).then((result) =>
 )
 
 // ============================================================
-// 5. Effect.either — 将错误转为 Either 类型
+// 5. Effect.exit — 将错误转为 Exit 类型
 // ============================================================
 
-console.log("\n=== 5. Effect.either — 错误转为 Either ===\n")
+console.log("\n=== 5. Effect.exit — 错误转为 Exit ===\n")
 
-// Effect.either 将 Effect<E, A> 转为 Effect<never, Either<E, A>>
+// Effect.exit 将 Effect<E, A> 转为 Effect<never, Exit<E, A>>
 // 好处: 永远不会失败，错误变成普通数据
+// beta.65: 使用 Effect.exit，不是 Effect.either
 
 const mayFail = (fail: boolean): Effect.Effect<string, Error> =>
   Effect.gen(function* () {
@@ -168,29 +174,33 @@ const mayFail = (fail: boolean): Effect.Effect<string, Error> =>
     return "操作成功"
   })
 
-// 失败的情况: Either 包含 Left
-const program5a = mayFail(true).pipe(Effect.either)
+// 失败的情况: Exit 包含 Failure
+const program5a = mayFail(true).pipe(Effect.exit)
 
-Effect.runPromise(program5a).then((either) => {
-  if (either._tag === "Left") {
-    console.log("Either.Left — 错误:", either.left.message)
+Effect.runPromise(program5a).then((exit) => {
+  if (Exit.isFailure(exit)) {
+    const causeOpt = Exit.getCause(exit)
+    console.log("Exit.Failure — 错误:", causeOpt._tag === "Some" ? causeOpt.value : "unknown")
   } else {
-    console.log("Either.Right — 成功:", either.right)
+    const valueOpt = Exit.getSuccess(exit)
+    console.log("Exit.Success — 成功:", valueOpt._tag === "Some" ? valueOpt.value : "unknown")
   }
 })
 
-// 成功的情况: Either 包含 Right
-const program5b = mayFail(false).pipe(Effect.either)
+// 成功的情况: Exit 包含 Success
+const program5b = mayFail(false).pipe(Effect.exit)
 
-Effect.runPromise(program5b).then((either) => {
-  if (either._tag === "Left") {
-    console.log("Either.Left — 错误:", either.left.message)
+Effect.runPromise(program5b).then((exit) => {
+  if (Exit.isFailure(exit)) {
+    const causeOpt = Exit.getCause(exit)
+    console.log("Exit.Failure — 错误:", causeOpt._tag === "Some" ? causeOpt.value : "unknown")
   } else {
-    console.log("Either.Right — 成功:", either.right)
+    const valueOpt = Exit.getSuccess(exit)
+    console.log("Exit.Success — 成功:", valueOpt._tag === "Some" ? valueOpt.value : "unknown")
   }
 })
 
-// either 的实用场景: 批量操作中允许部分失败
+// exit 的实用场景: 批量操作中允许部分失败
 const items = [1, 2, -1, 3, -2] // -1 和 -2 会失败
 
 const validateItem = (n: number): Effect.Effect<number, string> =>
@@ -202,16 +212,17 @@ const validateItem = (n: number): Effect.Effect<number, string> =>
   })
 
 const batchProcess = Effect.all(
-  items.map((n) => validateItem(n).pipe(Effect.either)),
+  items.map((n) => validateItem(n).pipe(Effect.exit)),
 )
 
 Effect.runPromise(batchProcess).then((results) => {
   console.log("\n批量处理结果（部分失败不影响整体）:")
-  results.forEach((either, i) => {
-    if (either._tag === "Left") {
-      console.log(`  [${items[i]}] ❌ ${either.left}`)
+  results.forEach((exit, i) => {
+    if (Exit.isFailure(exit)) {
+      console.log(`  [${items[i]}] ❌ 失败`)
     } else {
-      console.log(`  [${items[i]}] ✅ ${either.right}`)
+      const valueOpt = Exit.getSuccess(exit)
+      console.log(`  [${items[i]}] ✅ ${valueOpt._tag === "Some" ? valueOpt.value : "unknown"}`)
     }
   })
 })
@@ -225,8 +236,8 @@ console.log("\n=== 6. 恢复策略对比 ===\n")
 console.log("策略               | 行为                          | 结果类型变化")
 console.log("-------------------|-------------------------------|------------------------------")
 console.log("retry(schedule)    | 失败时按计划重试              | 错误类型不变")
-console.log("orElse(fallback)   | 失败时切换到降级 Effect       | E → E2（降级可能也有错误）")
+console.log("catch(fallback)    | 失败时切换到降级 Effect       | E → E2（降级可能也有错误）")
 console.log("orElseSucceed(val) | 失败时返回默认值              | E → never")
-console.log("either             | 错误转为 Either 数据          | E → never, A → Either<E, A>")
+console.log("exit               | 错误转为 Exit 数据            | E → never, A → Exit<E, A>")
 
 console.log("\n✅ 03-recovery-strategies.ts 运行完成")

@@ -3,6 +3,7 @@ import { hideBin } from "yargs/helpers"
 import * as Log from "@miniopencode/core/util/log"
 import { InstallationVersion } from "@miniopencode/core/installation/version"
 import { runCommand } from "./cli/cmd/run"
+import { sessionListCommand, sessionGetCommand, sessionDeleteCommand } from "./cli/cmd/session"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", { e: e instanceof Error ? e.message : String(e) })
@@ -41,6 +42,45 @@ yargs(args)
         process.exit(1)
       })
     },
+  )
+  .command(
+    "session",
+    "Session management commands",
+    (y) =>
+      y
+        .command(
+          "list",
+          "List all sessions",
+          (y2) => y2.option("limit", { type: "number", describe: "max results", default: 20 }),
+          (argv) => {
+            sessionListCommand({ limit: argv.limit as number }).catch((e) => {
+              console.error("Error:", e instanceof Error ? e.message : String(e))
+              process.exit(1)
+            })
+          },
+        )
+        .command(
+          "get <id>",
+          "Show session details and messages",
+          (y2) => y2.positional("id", { type: "string", describe: "session id", demandOption: true }),
+          (argv) => {
+            sessionGetCommand({ id: argv.id as string }).catch((e) => {
+              console.error("Error:", e instanceof Error ? e.message : String(e))
+              process.exit(1)
+            })
+          },
+        )
+        .command(
+          "delete <id>",
+          "Delete a session and its messages",
+          (y2) => y2.positional("id", { type: "string", describe: "session id", demandOption: true }),
+          (argv) => {
+            sessionDeleteCommand({ id: argv.id as string }).catch((e) => {
+              console.error("Error:", e instanceof Error ? e.message : String(e))
+              process.exit(1)
+            })
+          },
+        ),
   )
   .demandCommand(1)
   .strict()

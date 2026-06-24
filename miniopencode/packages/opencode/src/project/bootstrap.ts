@@ -6,6 +6,7 @@ import { ProjectService, makeProject } from "./project"
 import { ToolRuntimeService, makeRuntime } from "@/tool/tool"
 import { ReadTool, WriteTool, BashTool, GlobTool, GrepTool } from "@/tool"
 import { ProviderService, makeProvider, type ProviderShape } from "@/provider/index"
+import { SessionService, makeSession, type SessionShape } from "@/session/session"
 
 // ── Pre-compute all services synchronously ──────────────────
 // This avoids Effect's layer dependency resolution which can
@@ -35,7 +36,11 @@ const agentLayer = Layer.succeed(AgentService, agent)
 const permission: PermissionShape = makePermission(config.permission)
 const permissionLayer = Layer.succeed(PermissionService, permission)
 
-// 6. Project (depends on directory, config, agent, permission)
+// 6. Session (no dependencies)
+const session: SessionShape = makeSession()
+const sessionLayer = Layer.succeed(SessionService, session)
+
+// 7. Project (depends on directory, config, agent, permission)
 const project = makeProject(dir, config, agent, permission)
 const projectLayer = Layer.succeed(ProjectService, project)
 
@@ -45,6 +50,7 @@ export const InstanceLayer = Layer.mergeAll(
   configLayer,
   toolLayer,
   providerLayer,
+  sessionLayer,
   agentLayer,
   permissionLayer,
   projectLayer,

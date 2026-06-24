@@ -52,3 +52,42 @@ AI SDK Warning (miniopencode.chat / glm-5.1:cloud): The feature "specificationVe
 operable program or batch file.
 2026-06-23T14:31:36.453Z [INFO] [llm] generate done {"length":39}
 Hello! Let me explore what we have here
+
+
+## refactory
+
+重构路线图（5 阶段）
+Phase A — 底层架构对齐（核心依赖）
+> 不改功能，只改架构模式。每步确保 typecheck + run -p "hello" 仍然通过。
+| # | 任务 | 参考父目录 | 关键改动 |
+|---|---|---|---|
+| A1 | EventBus 重写 — Map → Effect PubSub + Stream | bus/index.ts (74 行) | 替换同步 Map，用 PubSub.unbounded + Stream.fromPubSub |
+| A2 | Tool 系统重写 — 引入 Effect Schema 参数 + ExecuteResult | tool/tool.ts (165 行) | Def<P> 泛型、Schema.decodeUnknownEffect 校验、Context 传 sessionID/abort |
+| A3 | Effect 运行时完善 — 加 InstanceState, bridge, run-service | effect/*.ts | 增加 makeRuntime、InstanceState.make、EffectBridge |
+| A4 | Layer 逐步迁移 — 部分 Layer.succeed → Layer.effect + Layer.provide | project/bootstrap.ts | 从无依赖的 Service 开始迁移（Bus→Tool→Session→Provider） |
+Phase B — Session 系统重构
+> 与父目录 session 结构对齐，增加 parts、message-v2、完整状态机。
+| # | 任务 | 参考父目录 |
+|---|---|---|
+| B1 | Session Schema 重构 — 引入 SessionID/MessageID/PartID brand types | session/schema.ts |
+| B2 | MessageV2 系统 — 实现 ContentPart/FilePart/ToolCallPart/ToolResultPart | session/message-v2.ts |
+| B3 | session.ts 扩展 — 增加 parentID, fork, session status 状态机 | session/session.ts |
+| B4 | DB 层 — 切换到 drizzle-orm（修 in-memory bug 后） | storage/*.ts + session/session.sql.ts |
+Phase C — Prompt 引擎（核心）
+> 这是 opencode 最复杂的部分（父目录 2157 行）。
+| # | 任务 | 参考父目录 |
+|---|---|---|
+| C1 | Prompt 基础 — PromptInput/PromptOutput/解析 parts | session/prompt.ts |
+| C2 | System Prompt 构建 — agent + instruction + tools | session/system.ts |
+| C3 | 工具循环 — LLM.generate → tool execute → 继续 → maxSteps | session/prompt.ts |
+| C4 | 错误处理 — 重试/回退/取消 | session/prompt.ts |
+Phase D — 模块补齐
+> 按 PLAN.md 优先级补充缺失模块。
+| # | 任务 | 参考父目录 |
+|---|---|---|
+| D1 | SubAgent (task tool) + BackgroundJob | tool/task.ts, background/job.ts |
+| D2 | 多 Provider + 路由 + 协议层 | provider/*.ts, protocols/*, route/* |
+| D3 | 文件系统 + Git 集成 | file/*, git/* |
+| D4 | LSP + Shell/PTY + Format | lsp/*, shell/*, format/* |
+Phase E — 外围功能
+> MCP/ACP/存储迁移/安装/TUI/测试/文档

@@ -1,6 +1,7 @@
 # miniopencode — 从零到完整 opencode 的 500 次迭代规划
 
-> 目标：通过约 500 次小步迭代，从最小可运行版本逐步构建到完整 opencode 功能。
+> 目标：通过约 500 次小步迭代，从最小可运行版本逐步构建到完整 opencode 功能。作为opencode开发人员，想由浅深入通过不断的迭代去理解opencode的工作机制与及所有代码
+> 一定要参考完整版opencode代码，完整 opencode 代码在当前目录的父目录下packages中（完整路径'D:\claude-code-project\opencode.ai\opencode'）
 > 每次迭代都是可运行、可验证的增量。
 > 三个核心包：`@miniopencode/core`（工具层）、`@miniopencode/llm`（LLM 层）、`@miniopencode/opencode`（主程序）
 
