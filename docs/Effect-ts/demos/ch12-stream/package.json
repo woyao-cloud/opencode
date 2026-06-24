@@ -1,0 +1,15 @@
+{
+  "name": "ch12-stream",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:create": "bun run src/01-create-stream.ts",
+    "demo:transform": "bun run src/02-transform.ts",
+    "demo:consume": "bun run src/03-consume.ts",
+    "demo:merge": "bun run src/04-merge-zip.ts",
+    "demo:backpressure": "bun run src/05-backpressure.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
