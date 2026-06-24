@@ -1,0 +1,14 @@
+{
+  "name": "ch10-effect-patterns",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:retry": "bun run src/01-retry-schedule.ts",
+    "demo:timeout": "bun run src/02-timeout-race.ts",
+    "demo:batch": "bun run src/03-batch-operations.ts",
+    "demo:cache": "bun run src/04-cache-once.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
