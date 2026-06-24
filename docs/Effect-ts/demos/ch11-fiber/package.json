@@ -1,0 +1,14 @@
+{
+  "name": "ch11-fiber",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:vs-promise": "bun run src/01-fiber-vs-promise.ts",
+    "demo:fork-join": "bun run src/02-fork-join-interrupt.ts",
+    "demo:lifecycle": "bun run src/03-lifecycle.ts",
+    "demo:structured": "bun run src/04-structured-concurrency.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
