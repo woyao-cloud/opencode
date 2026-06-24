@@ -1,0 +1,13 @@
+{
+  "name": "ch20-migration-guide",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:migration": "bun run src/01-migration-strategy.ts",
+    "demo:react": "bun run src/02-react-integration.ts",
+    "demo:ecosystem": "bun run src/03-ecosystem.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
