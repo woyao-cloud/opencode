@@ -1,0 +1,14 @@
+{
+  "name": "ch13-queue-deferred",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:types": "bun run src/01-queue-types.ts",
+    "demo:ops": "bun run src/02-queue-ops.ts",
+    "demo:deferred": "bun run src/03-deferred.ts",
+    "demo:producer": "bun run src/04-producer-consumer.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
