@@ -1,10 +1,14 @@
 // ── Session Service — CRUD for sessions and messages ────────
 // Uses raw SQL (bun:sqlite) with positional `?` parameters.
+// Table structure is defined in session.sql.ts (Drizzle) for reference;
+// actual queries remain raw SQL due to a known drizzle-orm + Effect
+// runtime incompatibility.
 
 import { Effect, Context, Layer } from "effect"
 import type { Database } from "bun:sqlite"
 import { getDb } from "./db"
 import type { SessionRow, MessageRow, SessionStatus } from "./schema"
+import { sessionTable, messageTable, permissionRuleTable } from "./session.sql"
 import { sessionId, messageId } from "./id"
 import { BusService } from "@/bus/index"
 import { SessionCreated, SessionUpdated, SessionDeleted, MessageAdded } from "@/bus/bus-event"

@@ -9,6 +9,8 @@ import { ProviderService, makeProvider, type ProviderShape, ProviderLive } from 
 import { SessionLive, SessionStatusLive, SessionRunStateLive, LlmLive, PromptLive } from "@/session/index"
 import { BusLive } from "@/bus/index"
 import { BackgroundJobLive } from "@/background/job"
+import { StorageService, StorageLive } from "@/storage/index"
+import { DataMigrationService, DataMigrationLive } from "@/data-migration"
 
 // ── Service Layers (mix of Layer.succeed + Layer.effect) ─────
 
@@ -62,4 +64,6 @@ export const InstanceLayer = Layer.mergeAll(
   LlmLive,
   PromptLive,
   BackgroundJobLive,
+  StorageLive,
+  DataMigrationLive,
 )
