@@ -1,0 +1,14 @@
+{
+  "name": "ch08-layer-advanced",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:dynamic": "bun run src/01-dynamic-layer.ts",
+    "demo:conditional": "bun run src/02-conditional.ts",
+    "demo:multi": "bun run src/03-multi-layer-arch.ts",
+    "demo:test": "bun run src/04-test-replacement.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.65"
+  }
+}
