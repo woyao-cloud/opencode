@@ -18,10 +18,10 @@ export interface SessionSummary {
 }
 
 /**
- * 估算消息的 token 数量（粗略估计）
+ * 估算字符数的 token 数量（粗略估计，每 4 字符 ≈ 1 token）
  */
-export const estimateTokens = (text: string): number =>
-  Math.ceil(text.length / 4)
+export const estimateTokens = (charCount: number): number =>
+  Math.ceil(charCount / 4)
 
 /**
  * 生成 Session 摘要

@@ -12,9 +12,9 @@ const log = Log.create({ service: "bootstrap" })
 const refLayer = Layer.succeed(InstanceRef, { directory: process.cwd(), worktree: "/" })
 const wsLayer = Layer.succeed(WorkspaceRef, "/")
 
-export const AppLayer = Layer.mergeAll(refLayer, wsLayer, InstanceLayer)
+export const AppLayer = Layer.mergeAll(refLayer, wsLayer, InstanceLayer) as any
 
-const rt = ManagedRuntime.make(AppLayer)
+const rt = ManagedRuntime.make(AppLayer) as any
 
 export const AppRuntime = {
   runSync: <A>(effect: any) => rt.runSync(effect) as A,

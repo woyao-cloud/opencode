@@ -1,17 +1,17 @@
 import { Effect, Layer } from "effect"
 import { ConfigService, MiniOpenCodeConfig, ConfigShape, findConfigFile, loadConfigFile, defaultConfig } from "@/config/config"
-import { AgentService, makeAgent, type AgentShape, AgentLive } from "@/agent/agent"
-import { PermissionService, makePermission, type PermissionShape, PermissionLive } from "@/permission/index"
-import { ProjectService, makeProject, makeProjectLive } from "./project"
+import { AgentLive } from "@/agent/agent"
+import { PermissionLive } from "@/permission/index"
+import { makeProjectLive } from "./project"
 import { ToolRuntimeService, makeRuntime } from "@/tool/tool"
 import { ReadTool, WriteTool, BashTool, GlobTool, GrepTool } from "@/tool"
-import { ProviderService, makeProvider, type ProviderShape, ProviderLive } from "@/provider/index"
+import { ProviderLive } from "@/provider/index"
 import { SessionLive, SessionStatusLive, SessionRunStateLive, LlmLive, PromptLive } from "@/session/index"
 import { BusLive } from "@/bus/index"
 import { BackgroundJobLive } from "@/background/job"
-import { StorageService, StorageLive } from "@/storage/index"
-import { DataMigrationService, DataMigrationLive } from "@/data-migration"
-import { MCPServiceTag, MCPLive } from "@/mcp/index"
+import { StorageLive } from "@/storage/index"
+import { DataMigrationLive } from "@/data-migration"
+import { MCPLive } from "@/mcp/index"
 
 // ── Service Layers (mix of Layer.succeed + Layer.effect) ─────
 
@@ -33,27 +33,36 @@ const runtime = makeRuntime([
 ])
 const toolLayer = Layer.succeed(ToolRuntimeService, runtime)
 
-// 3. Session — Effect-based, depends on BusService
-const sessionLayer = Layer.provide(SessionLive, BusLive)
+// ── Layer composition ───────────────────────────────────────
+// Effect v4 beta.65: Layer.mergeAll() does NOT resolve cross-layer
+// dependencies at runtime. Layer.provide() consumes dependency tags,
+// preventing them from reaching sibling layers.
+// Layer.provideMerge() is the fix — it feeds deps into a layer while
+// ALSO keeping those deps' tags in the output. Type erasure with `as any`
+// matches the pattern used by the full opencode codebase.
+// ─────────────────────────────────────────────────────────────
 
-// 4. Provider/Agent/Permission — Effect-based
-//    Provider + Agent depend on ConfigService; Permission also depends on BusService
-const providerLayer = Layer.provide(ProviderLive, configLayer)
-const agentLayer = Layer.provide(AgentLive, configLayer)
-const permissionDeps = Layer.mergeAll(configLayer, BusLive)
-const permissionLayer = Layer.provide(PermissionLive, permissionDeps)
+const configAndBus = Layer.mergeAll(configLayer, BusLive) as any
 
-// 5. Project — Effect-based, depends on ConfigService + AgentService + PermissionService
-const projectDeps = Layer.mergeAll(configLayer, agentLayer, permissionLayer)
-const projectLayer = Layer.provide(makeProjectLive(dir), projectDeps)
+// Layers that only need ConfigService and/or BusService
+const providerLayer = (ProviderLive as any).pipe(Layer.provideMerge(configAndBus))
+const agentLayer = (AgentLive as any).pipe(Layer.provideMerge(configAndBus))
+const permissionLayer = (PermissionLive as any).pipe(Layer.provideMerge(configAndBus))
+const sessionLayer = (SessionLive as any).pipe(Layer.provideMerge(configAndBus))
+const sessionStatusLayer = (SessionStatusLive as any).pipe(Layer.provideMerge(configAndBus))
+const mcpLayer = (MCPLive as any).pipe(Layer.provideMerge(configAndBus))
 
-// 6. Session status + run state — depend on BusService and each other
-const sessionStatusLayer = Layer.provide(SessionStatusLive, BusLive)
-const sessionRunStateLayer = Layer.provide(SessionRunStateLive, sessionStatusLayer)
+// SessionRunStateLive needs SessionStatusService (provided by sessionStatusLayer)
+const runStateLayer = (SessionRunStateLive as any).pipe(Layer.provideMerge(sessionStatusLayer))
 
-// Merge all layers into one. Layers with satisfied requirements resolve cleanly.
+// makeProjectLive needs ConfigService, AgentService, and PermissionService
+const projectDeps = Layer.mergeAll(agentLayer, permissionLayer, configAndBus) as any
+const projectLayer = (makeProjectLive(dir) as any).pipe(Layer.provideMerge(projectDeps))
+
+// All layers have their requirements satisfied via provideMerge chains.
+// Final mergeAll collects all output tags.
 export const InstanceLayer = Layer.mergeAll(
-  configLayer,
+  configAndBus,
   toolLayer,
   providerLayer,
   agentLayer,
@@ -61,11 +70,11 @@ export const InstanceLayer = Layer.mergeAll(
   projectLayer,
   sessionLayer,
   sessionStatusLayer,
-  sessionRunStateLayer,
+  runStateLayer,
   LlmLive,
   PromptLive,
   BackgroundJobLive,
   StorageLive,
   DataMigrationLive,
-  MCPLive,
-)
+  mcpLayer,
+) as any

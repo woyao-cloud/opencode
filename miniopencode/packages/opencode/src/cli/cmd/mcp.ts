@@ -1,27 +1,40 @@
 /**
- * cli/cmd/mcp.ts — MCP 管理命令
+ * cli/cmd/mcp.ts — MCP management commands
  *
- * 列出和测试 MCP 服务器连接
+ * List and inspect MCP server connections.
  */
 
 import { Effect } from "effect"
+import { AppRuntime, init } from "../bootstrap"
 import { MCPServiceTag } from "@/mcp/index"
 
-export const mcpListCommand = (): Effect.Effect<void> =>
-  Effect.gen(function* () {
-    const mcp = yield* MCPServiceTag
-    const servers = yield* mcp.listServers()
-    if (servers.length === 0) {
-      console.log("没有配置 MCP 服务器")
-      return
-    }
-    console.log("MCP 服务器:")
-    for (const s of servers) {
-      console.log(`  ${s.name}: ${s.status}`)
-    }
-    const tools = yield* mcp.listTools()
-    console.log(`\n可用工具 (${tools.length}):`)
-    for (const { server, tool } of tools) {
-      console.log(`  [${server}] ${tool.name}: ${tool.description ?? "无描述"}`)
-    }
-  })
+export async function mcpListCommand() {
+  await init()
+
+  await AppRuntime.runPromise(
+    Effect.gen(function* () {
+      const mcp = yield* MCPServiceTag
+      const servers = yield* mcp.listServers()
+      if (servers.length === 0) {
+        console.log("No MCP servers configured.")
+        return
+      }
+      console.log("MCP servers:")
+      for (const s of servers) {
+        console.log(`  ${s.name}: ${s.status}`)
+      }
+      const tools = yield* mcp.listTools()
+      console.log(`\nAvailable tools (${tools.length}):`)
+      for (const { server, tool } of tools) {
+        console.log(`  [${server}] ${tool.name}: ${tool.description ?? "(no description)"}`)
+      }
+    }),
+  )
+}
+
+export async function mcpResolveCommand() {
+  await init()
+  console.log("MCP resolve: not yet implemented")
+}
+
+export * as McpCommand from "./mcp"

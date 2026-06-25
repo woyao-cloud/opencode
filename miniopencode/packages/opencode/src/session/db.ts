@@ -44,6 +44,13 @@ const SCHEMA_SQL = [
 
 let _migrated = false
 
+export function ensureSessionSchema(client: Database): void {
+  const columns = client.query("PRAGMA table_info(session)").all() as Array<{ name?: string }>
+  if (!columns.some((column) => column.name === "permission_rules_json")) {
+    client.run("ALTER TABLE session ADD COLUMN permission_rules_json TEXT")
+  }
+}
+
 function ensureMigrated(): void {
   if (_migrated) return
   // Open the storage db (initializes PRAGMAs and dirs)
@@ -52,6 +59,7 @@ function ensureMigrated(): void {
   for (const sql of SCHEMA_SQL) {
     client.run(sql)
   }
+  ensureSessionSchema(client)
   _migrated = true
 }
 

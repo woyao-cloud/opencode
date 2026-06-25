@@ -22,10 +22,10 @@ export const generate = (
   model: ModelRef,
   messages: Message[],
   options?: GenerationOptions,
-): Effect.Effect<string> =>
+): Effect.Effect<string, Error> =>
   Effect.tryPromise({
     try: async () => {
-      const url = `${config.baseURL ?? GEMINI_API}/models/${model.modelId}:generateContent?key=${config.apiKey}`
+      const url = `${config.baseURL ?? GEMINI_API}/models/${model.modelID}:generateContent?key=${config.apiKey}`
 
       const contents = messages.map((m) => ({
         role: m.role === "assistant" ? "model" : m.role,
@@ -68,7 +68,7 @@ export const stream = (
   return new ReadableStream<string>({
     async start(controller) {
       try {
-        const url = `${config.baseURL ?? GEMINI_API}/models/${model.modelId}:streamGenerateContent?key=${config.apiKey}&alt=sse`
+        const url = `${config.baseURL ?? GEMINI_API}/models/${model.modelID}:streamGenerateContent?key=${config.apiKey}&alt=sse`
 
         const contents = messages.map((m) => ({
           role: m.role === "assistant" ? "model" : m.role,

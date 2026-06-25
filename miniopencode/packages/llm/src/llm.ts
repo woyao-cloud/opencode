@@ -3,21 +3,42 @@ import * as Log from "@miniopencode/core/util/log"
 import { generateText, streamText } from "ai"
 import { createOpenAI } from "@ai-sdk/openai"
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible"
+import { createAnthropic } from "@ai-sdk/anthropic"
+import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { ModelRef, type Message } from "./schema/messages"
 
 const log = Log.create({ service: "llm" })
 
 function resolveModel(model: ModelRef) {
-  const apiKey = model.apiKey ?? process.env.OPENAI_API_KEY ?? process.env.MINICODE_API_KEY
-  const baseURL = model.baseURL ?? "https://api.openai.com/v1"
+  const providerId = String(model.providerID)
 
-  if (model.providerID === "openai-compatible" || model.baseURL) {
-    const client = createOpenAICompatible({ name: "miniopencode", apiKey, baseURL })
-    return client.chatModel(model.modelID as string) as any
+  // Anthropic
+  if (providerId === "anthropic") {
+    const apiKey = model.apiKey ?? process.env.ANTHROPIC_API_KEY ?? ""
+    const anthropic = createAnthropic({ apiKey, baseURL: model.baseURL })
+    return anthropic(String(model.modelID)) as any
   }
 
+  // Google Gemini
+  if (providerId === "gemini") {
+    const apiKey = model.apiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? ""
+    const gemini = createGoogleGenerativeAI({ apiKey, baseURL: model.baseURL })
+    return gemini(String(model.modelID)) as any
+  }
+
+  // OpenAI-compatible (when baseURL is set or provider is explicitly openai-compatible)
+  if (providerId === "openai-compatible" || model.baseURL) {
+    const apiKey = model.apiKey ?? process.env.OPENAI_API_KEY ?? process.env.MINICODE_API_KEY
+    const baseURL = model.baseURL ?? "https://api.openai.com/v1"
+    const client = createOpenAICompatible({ name: "miniopencode", apiKey, baseURL })
+    return client.chatModel(String(model.modelID)) as any
+  }
+
+  // Default: OpenAI
+  const apiKey = model.apiKey ?? process.env.OPENAI_API_KEY ?? process.env.MINICODE_API_KEY
+  const baseURL = model.baseURL ?? "https://api.openai.com/v1"
   const openai = createOpenAI({ apiKey, baseURL })
-  return openai(model.modelID as string) as any
+  return openai(String(model.modelID)) as any
 }
 
 function toCoreMessages(messages: ReadonlyArray<Message>): any[] {

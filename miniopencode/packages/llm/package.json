@@ -11,11 +11,13 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "effect": "4.0.0-beta.65",
+    "@ai-sdk/anthropic": "3.0.86",
+    "@ai-sdk/google": "3.0.83",
+    "@ai-sdk/openai": "3.0.53",
+    "@ai-sdk/openai-compatible": "1.0.41",
     "@miniopencode/core": "workspace:*",
     "ai": "6.0.168",
-    "@ai-sdk/openai": "3.0.53",
-    "@ai-sdk/openai-compatible": "1.0.41"
+    "effect": "4.0.0-beta.65"
   },
   "devDependencies": {
     "@tsconfig/bun": "1.0.9",

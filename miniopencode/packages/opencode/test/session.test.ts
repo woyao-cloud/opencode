@@ -59,8 +59,8 @@ test("revert handles out-of-range point", () => {
 // ===== Summary =====
 
 test("estimateTokens estimates token count", () => {
-  expect(estimateTokens("hello world")).toBe(3)
-  expect(estimateTokens("a".repeat(100))).toBe(25)
+  expect(estimateTokens("hello world".length)).toBe(3)
+  expect(estimateTokens(100)).toBe(25)
 })
 
 test("summarize generates session summary", () => {

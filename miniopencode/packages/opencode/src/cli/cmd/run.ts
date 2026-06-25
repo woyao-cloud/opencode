@@ -100,6 +100,7 @@ async function buildTools(opts: {
 export async function runCommand(opts: {
   prompt?: string
   model?: string
+  provider?: string
   baseURL?: string
   apiKey?: string
   interactive?: boolean
@@ -109,7 +110,7 @@ export async function runCommand(opts: {
   const tools = await buildTools(opts)
 
   if (opts.interactive) {
-    return runInteractive({ model: opts.model, baseURL: opts.baseURL, apiKey: opts.apiKey, tools })
+    return runInteractive({ model: opts.model, provider: opts.provider, baseURL: opts.baseURL, apiKey: opts.apiKey, tools })
   }
 
   if (!opts.prompt) {
@@ -125,7 +126,7 @@ export async function runCommand(opts: {
       const session = yield* SessionService.use((svc) => svc.create({ title: input.slice(0, 100) }))
       setParentSessionId(session.id) // for background task result injection
       yield* SessionService.use((svc) => svc.updateStatus(session.id, "running"))
-      const model = yield* ProviderService.use((svc) => svc.resolve(opts.model))
+      const model = yield* ProviderService.use((svc) => svc.resolve(opts.model, opts.provider))
 
       let resolvedModel = model as ResolvedModel
       if (opts.baseURL) resolvedModel.baseURL = opts.baseURL
@@ -163,6 +164,7 @@ export async function runCommand(opts: {
 
 async function runInteractive(opts: {
   model?: string
+  provider?: string
   baseURL?: string
   apiKey?: string
   tools: Record<string, unknown>
@@ -174,7 +176,7 @@ async function runInteractive(opts: {
     Effect.gen(function* () {
       const session = yield* SessionService.use((svc) => svc.create({ title: "interactive session" }))
       yield* SessionService.use((svc) => svc.updateStatus(session.id, "running"))
-      const model = yield* ProviderService.use((svc) => svc.resolve(opts.model))
+      const model = yield* ProviderService.use((svc) => svc.resolve(opts.model, opts.provider))
       return { session, model }
     }),
   ) as any

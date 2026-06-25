@@ -54,6 +54,7 @@ export const GenerationOptions = Schema.Struct({
   temperature: Schema.optional(Schema.Number),
   topP: Schema.optional(Schema.Number),
   stop: Schema.optional(Schema.Array(Schema.String)),
+  system: Schema.optional(Schema.String),
 })
 export type GenerationOptions = Schema.Schema.Type<typeof GenerationOptions>
 

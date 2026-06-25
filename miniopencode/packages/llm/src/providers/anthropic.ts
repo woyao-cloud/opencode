@@ -22,11 +22,11 @@ export const generate = (
   model: ModelRef,
   messages: Message[],
   options?: GenerationOptions,
-): Effect.Effect<string> =>
+): Effect.Effect<string, Error> =>
   Effect.tryPromise({
     try: async () => {
-      const body = {
-        model: model.modelId,
+      const body: Record<string, unknown> = {
+        model: model.modelID,
         max_tokens: options?.maxTokens ?? 4096,
         messages: messages.map((m) => ({
           role: m.role,
@@ -69,8 +69,8 @@ export const stream = (
   const stream = new ReadableStream<string>({
     async start(controller) {
       try {
-        const body = {
-          model: model.modelId,
+        const body: Record<string, unknown> = {
+          model: model.modelID,
           max_tokens: options?.maxTokens ?? 4096,
           messages: messages.map((m) => ({
             role: m.role,

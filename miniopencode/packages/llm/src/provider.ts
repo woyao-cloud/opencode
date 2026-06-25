@@ -14,8 +14,8 @@ export function make(definition: Definition): Definition {
 export const OpenAI = make({
   id: "openai" as ProviderID,
   model: (id, opts) => ({
-    provider: "openai" as ProviderID,
-    modelId: typeof id === "string" ? id : id,
+    providerID: "openai" as ProviderID,
+    modelID: id as ModelID,
     apiKey: opts?.apiKey,
     baseURL: opts?.baseURL,
   }),
@@ -24,8 +24,8 @@ export const OpenAI = make({
 export const Anthropic = make({
   id: "anthropic" as ProviderID,
   model: (id, opts) => ({
-    provider: "anthropic" as ProviderID,
-    modelId: typeof id === "string" ? id : id,
+    providerID: "anthropic" as ProviderID,
+    modelID: id as ModelID,
     apiKey: opts?.apiKey,
     baseURL: opts?.baseURL,
   }),
@@ -34,8 +34,8 @@ export const Anthropic = make({
 export const Gemini = make({
   id: "gemini" as ProviderID,
   model: (id, opts) => ({
-    provider: "gemini" as ProviderID,
-    modelId: typeof id === "string" ? id : id,
+    providerID: "gemini" as ProviderID,
+    modelID: id as ModelID,
     apiKey: opts?.apiKey,
     baseURL: opts?.baseURL,
   }),
