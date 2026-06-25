@@ -116,11 +116,13 @@ export function makeSession(): Effect.Effect<SessionShape, never, BusService> {
         Effect.gen(function* () {
           const now = Date.now()
           const id = messageId()
+          // 保护：确保 content 不为空字符串（Bun SQLite 可能将 "" 绑定为 NULL）
+          const content = msg.content || " "
           const row: MessageRow = {
             id,
             session_id: sid,
             role: msg.role as any,
-            content: msg.content,
+            content,
             created_at: now,
             tool_name: msg.toolName ?? null,
             tool_args_json: msg.toolArgs ? JSON.stringify(msg.toolArgs) : null,

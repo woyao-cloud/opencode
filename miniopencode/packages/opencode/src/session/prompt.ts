@@ -180,11 +180,13 @@ export function makePromptService(): PromptShape {
           })
         }
 
-        // 10. Persist final assistant response
-        yield* session.appendMessage(input.sessionId, {
-          role: "assistant",
-          content: result.text,
-        })
+        // 10. Persist final assistant response (skip if empty — LLM may return no text after tool calls)
+        if (result.text && result.text.length > 0) {
+          yield* session.appendMessage(input.sessionId, {
+            role: "assistant",
+            content: result.text,
+          })
+        }
 
         log.info("prompt complete", {
           sessionId: input.sessionId,
