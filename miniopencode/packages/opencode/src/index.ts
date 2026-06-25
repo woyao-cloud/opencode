@@ -5,6 +5,7 @@ import { InstallationVersion } from "@miniopencode/core/installation/version"
 import { runCommand } from "./cli/cmd/run"
 import { sessionListCommand, sessionGetCommand, sessionDeleteCommand } from "./cli/cmd/session"
 import { serveCommand } from "./cli/cmd/serve"
+import { mcpListCommand } from "./cli/cmd/mcp"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", { e: e instanceof Error ? e.message : String(e) })
@@ -97,6 +98,17 @@ yargs(args)
         host: argv.host as string,
         model: argv.model as string | undefined,
       }).catch((e) => {
+        console.error("Error:", e instanceof Error ? e.message : String(e))
+        process.exit(1)
+      })
+    },
+  )
+  .command(
+    "mcp",
+    "List MCP servers and tools",
+    () => {},
+    () => {
+      mcpListCommand().catch((e) => {
         console.error("Error:", e instanceof Error ? e.message : String(e))
         process.exit(1)
       })
