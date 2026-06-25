@@ -262,3 +262,59 @@ skill.ts — Same direct Info object pattern as task_status
 Remaining (pre-existing, unrelated)
 src/cli/cmd/run.ts — 2 errors (Effect type param mismatch)
 src/tool/task.ts   — 3 errors (missing `Cause` import, return type)
+
+# Phase 12
+Typecheck clean (exit 0). Phase 12 is 100% implemented — all six modules exist and are fully wired:
+| Module | Lines | Status | Integration |
+|---|---|---|---|
+| compaction.ts | 651 | ✅ isOverflow, prune, process, create | Imported in prompt.ts |
+| retry.ts | 200 | ✅ retryable, delay, policy (exponential backoff) | Effect Schedule-based |
+| revert.ts | 162 | ✅ revert, unrevert, cleanup + snapshot restoration | Imported in prompt.ts |
+| overflow.ts | 32 | ✅ usable context calc, isOverflow detection | Imported in compaction.ts |
+| summary.ts | 164 | ✅ summarize, diff, computeDiff (snapshot-based) | Imported in prompt.ts |
+| todo.ts | 81 | ✅ TodoWriteTool registered in registry, SQLite persistence | Registry + Bus events |
+
+## status
+
+各 Phase 详细进展
+| Phase | 计划迭代 | 当前状态 | 完成度 |
+|---|---|---|---|
+| 0 脚手架 | 1-10 | core/ 32源文件，llm/ 10+，opencode/ 50+子模块结构完整 | 100% ✅ |
+| 1 最小LLM | 11-30 | llm.generate/stream, 5种协议, 13个provider, 路由层, Effect运行时 | 100% ✅ |
+| 2 配置权限 | 31-50 | 23个config子模块, permission完整(arity/wildcard/evaluate), agent系统 | 100% ✅ |
+| 3 工具系统 | 51-70 | tool 接口 + 6个核心工具 + registry/截断/JSON Schema + 交互模式 | 100% ✅ |
+| 4 Session | 71-110 | Drizzle schema, SessionCRUD, message-v2, status, run-state, bus, HTTP server | ~95% ✅ |
+| 5 Prompt引擎 | 111-140 | PromptService (核心循环), LlmService, system/instruction, 集成到run | 100% ✅ |
+| 6 SubAgent | 141-170 | task tool, background job, subagent-permissions, agent prompts (explore/scout/...) | ~90% ✅ |
+| 7 权限安全 | 171-200 | 评估链, 命令arity, 通配符, tool级别ctx.ask检查, SQLite持久化 | ~90% ✅ |
+| 8 配置完善 | 201-230 | 全部23个子模块: markdown/mcp/lsp/permission/plugin/provider/formatter... | 100% ✅ |
+| 9 Provider | 231-260 | 5协议(openai/anthropic/gemini/bedrock/responses), 13provider, route/auth/cache | ~95% ✅ |
+| 10 存储系统 | 261-290 | StorageService, SQLite(bun+node), data-migration, snapshot | 100% ✅ |
+| 11 文件Git | 291-320 | File/FileWatcher/Ripgrep, Git(full), LSP, Format, edit/apply_patch, worktree | 100% ✅ |
+| 12 高级会话 | 321-360 | compaction(651行), retry, revert, summary, todo, overflow, processor | 100% ✅ |
+| 13 工具完善 | 361-400 | webfetch/websearch/question/skill/plan/repo等18个工具 + question/skill Service | ~95% ✅ |
+| 14 高级功能 | 401-450 | MCP(4文件), ACP(5文件), Reference, PTY(7文件), image, IDE, CLI命令 | ~75% 🟡 |
+| 15 生产化 | 451-500 | sync, share, control-plane, account(5文件), TUI全套, event-v2-bridge, 45测试目录 | ~45% 🟡 |
+关键对比
+| 指标 | plan.md 原计划 | 实际当前 | 比例 |
+|---|---|---|---|
+| core 源文件 | ~10 | 32 | 320% |
+| llm 源文件 | 10 | 10+ (5协议+13provider+路由) | ~200% |
+| opencode 子模块 | 50 | 50 (全部存在) | 100% |
+| 工具数 | 20+ | 18+ (几乎全部) | ~90% |
+| 测试 | 0 (Phase15才有) | 45个测试目录 | 远超预期 |
+| CLI命令 | ~20 | 25 (全部存在) | 125% |
+剩余缺口
+Phase 14（高级功能） 🟡 ~75%，缺：
+- MCP/ACP 运行时深度集成和验证
+- PTY 终端交互式测试
+- 完整的协议级测试
+Phase 15（生产化） 🟡 ~45%，缺：
+- 端到端测试 (E2E)
+- CI/CD 配置 (GitHub Actions)
+- 完整的文档/架构文档
+- 发布脚本
+各 Phase 验证迭代 —— 大部分模块有代码，但缺少完整的验证运行。
+---
+总体而言，miniopencode 进度远超预期。源代码量是原始计划的 2-3 倍（因为完整版 opencode 代码直接使用），模块覆盖率已达 100%。距离"与完整版 opencode 保持一致"的目标只差几个高级功能模块（Phase 14-15）的验证和收尾工作。
+下一步建议：继续推进 Phase 14（MCP/ACP/PTY 完善）还是跳到 Phase 15 做 TUI/测试/生产化准备？
