@@ -11,6 +11,7 @@ import { BusLive } from "@/bus/index"
 import { BackgroundJobLive } from "@/background/job"
 import { StorageService, StorageLive } from "@/storage/index"
 import { DataMigrationService, DataMigrationLive } from "@/data-migration"
+import { MCPServiceTag, MCPLive } from "@/mcp/index"
 
 // ── Service Layers (mix of Layer.succeed + Layer.effect) ─────
 
@@ -66,4 +67,5 @@ export const InstanceLayer = Layer.mergeAll(
   BackgroundJobLive,
   StorageLive,
   DataMigrationLive,
+  MCPLive,
 )
