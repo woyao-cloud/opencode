@@ -11,6 +11,8 @@ import { modelsListCommand, modelsResolveCommand } from "./cli/cmd/models"
 import { sessionExportCommand } from "./cli/cmd/export"
 import { sessionImportCommand } from "./cli/cmd/import_"
 import { statsCommand } from "./cli/cmd/stats"
+import { agentListCommand } from "./cli/cmd/agent"
+import { dbStatsCommand } from "./cli/cmd/db"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", { e: e instanceof Error ? e.message : String(e) })
@@ -236,6 +238,28 @@ yargs(args)
     () => {},
     () => {
       statsCommand().catch((e) => {
+        console.error("Error:", e instanceof Error ? e.message : String(e))
+        process.exit(1)
+      })
+    },
+  )
+  .command(
+    "agent",
+    "Show agent configuration",
+    () => {},
+    () => {
+      agentListCommand().catch((e) => {
+        console.error("Error:", e instanceof Error ? e.message : String(e))
+        process.exit(1)
+      })
+    },
+  )
+  .command(
+    "db",
+    "Database statistics",
+    () => {},
+    () => {
+      dbStatsCommand().catch((e) => {
         console.error("Error:", e instanceof Error ? e.message : String(e))
         process.exit(1)
       })
