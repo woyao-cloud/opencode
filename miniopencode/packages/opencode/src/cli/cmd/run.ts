@@ -210,7 +210,7 @@ async function runInteractive(opts: {
         ) as any
 
         if (result.toolSteps.length > 0) {
-          console.log("\n" + result.toolSteps.map((s: any) => `⚡ ${s.name}(${JSON.stringify(s.args)})`).join("\n"))
+          console.log("\n" + result.toolSteps.map((s: any) => `⚡ ${s.name}(${JSON.stringify(s.args ?? {})})`).join("\n"))
         }
 
         console.log("\n" + result.text + "\n")

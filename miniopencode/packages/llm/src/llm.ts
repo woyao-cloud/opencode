@@ -74,13 +74,15 @@ export function generate(input: {
           opts.onStepFinish = (event: any) => {
             if (event.toolCalls?.length && input.onToolCall) {
               for (const tc of event.toolCalls) {
-                input.onToolCall(tc.toolName ?? tc.name, tc.args)
+                // AI SDK v6: args could be tc.args or tc.input
+                const args = tc.args ?? tc.input ?? {}
+                input.onToolCall(tc.toolName ?? tc.name, args)
               }
             }
             if (event.toolResults?.length && input.onToolResult) {
               for (const tr of event.toolResults) {
                 const resultText = typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result, null, 2)
-                input.onToolResult(tr.toolName ?? tr.name, resultText)
+                input.onToolResult(tr.toolName ?? tr.name ?? tr.toolCallId, resultText)
               }
             }
           }
